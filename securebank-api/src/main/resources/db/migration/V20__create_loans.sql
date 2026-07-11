@@ -1,0 +1,42 @@
+CREATE TABLE loans (
+                       id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                       loan_ref VARCHAR(50) NOT NULL UNIQUE,
+                       user_id BIGINT NOT NULL,
+                       account_id BIGINT NOT NULL,
+                       reviewed_by BIGINT,
+                       loan_type VARCHAR(30) NOT NULL,
+                       status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+                       principal_amount DECIMAL(19,4) NOT NULL,
+                       interest_rate DECIMAL(5,2) NOT NULL,
+                       tenure_months INT NOT NULL,
+                       emi_amount DECIMAL(19,4),
+                       total_payable_amount DECIMAL(19,4),
+                       outstanding_amount DECIMAL(19,4),
+                       emis_paid INT NOT NULL DEFAULT 0,
+                       next_emi_date DATE,
+                       disbursement_date DATE,
+                       rejection_reason VARCHAR(500),
+                       purpose VARCHAR(500),
+                       version BIGINT NOT NULL DEFAULT 0,
+                       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                       CONSTRAINT fk_loan_user FOREIGN KEY (user_id) REFERENCES users(id),
+                       CONSTRAINT fk_loan_account FOREIGN KEY (account_id) REFERENCES accounts(id),
+                       CONSTRAINT fk_loan_reviewer FOREIGN KEY (reviewed_by) REFERENCES users(id)
+);
+
+CREATE TABLE emi_payments (
+                              id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                              loan_id BIGINT NOT NULL,
+                              emi_number INT NOT NULL,
+                              emi_amount DECIMAL(19,4) NOT NULL,
+                              interest_component DECIMAL(19,4) NOT NULL,
+                              principal_component DECIMAL(19,4) NOT NULL,
+                              outstanding_after DECIMAL(19,4) NOT NULL,
+                              due_date DATE NOT NULL,
+                              paid_date DATE,
+                              status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+                              transaction_ref VARCHAR(100),
+                              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                              CONSTRAINT fk_emi_loan FOREIGN KEY (loan_id) REFERENCES loans(id)
+);

@@ -1,0 +1,5 @@
+ALTER TABLE users
+    ADD COLUMN phone_number VARCHAR(15) DEFAULT '',
+    ADD COLUMN date_of_birth DATE,
+    ADD COLUMN address VARCHAR(500),
+    ADD COLUMN user_status VARCHAR(30) NOT NULL DEFAULT 'PENDING_KYC';

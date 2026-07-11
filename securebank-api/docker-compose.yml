@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  # ── MySQL Database ─────────────────────────────────────────────
+  db:
+    image: mysql:8.0          # use official MySQL 8.0 image from Docker Hub
+    container_name: securebank-db
+    restart: unless-stopped   # restart if it crashes, but not if YOU stopped it
+
+    environment:              # environment variables inside the container
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}   # from your .env file
+      MYSQL_DATABASE: securebank                  # creates this DB on first run
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+
+    ports:
+      - "3307:3306"           # host:container — your laptop's 3306 → container's 3306
+      # lets you connect from DBeaver/MySQL Workbench
+
+    volumes:
+      - mysql_data:/var/lib/mysql   # persist data between container restarts
+      # without this, ALL data lost on container stop
+
+    healthcheck:              # how to check if MySQL is actually ready
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost",
+             "-u", "root", "-p${DB_ROOT_PASSWORD}"]
+      interval: 10s           # check every 10 seconds
+      timeout: 5s             # give it 5 seconds to respond
+      retries: 5              # fail after 5 consecutive failures
+      start_period: 30s       # wait 30s before first check (MySQL is slow to start)
+
+  # ── Spring Boot Application ────────────────────────────────────
+  app:
+    build:
+      context: .              # look for Dockerfile in current directory
+      dockerfile: Dockerfile
+
+    container_name: securebank-api
+    restart: unless-stopped
+
+    depends_on:
+      db:
+        condition: service_healthy   # wait until MySQL health check passes
+        # NOT just until MySQL container starts
+
+    environment:              # these override application.properties
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:mysql://db:3306/securebank   # "db" = the service name above
+      # Docker's internal DNS resolves it
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION: 900000
+      JWT_REFRESH_EXPIRATION: 604800000
+      MAIL_HOST: ${MAIL_HOST}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      SERVER_PORT: 8081
+    ports:
+      - "8081:8081"
+
+    volumes:
+      - uploads_data:/app/uploads   # persist uploaded KYC documents
+#   healthcheck:
+#     test: ["CMD-SHELL",
+#            "wget -q --spider http://localhost:8081/actuator/health
+#              || exit 1"]
+#    interval: 30s
+#    timeout: 10s
+#    retries: 3
+#    start_period: 60s
+# Named volumes — Docker manages these, data survives container restarts
+volumes:
+  mysql_data:
+  uploads_data:
