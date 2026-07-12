@@ -1,4 +1,4 @@
-package com.ehtesham.securebank.notification;
+package com.ehtesham.securebank.notification.service;
 
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;

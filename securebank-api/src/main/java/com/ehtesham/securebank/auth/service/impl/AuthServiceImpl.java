@@ -9,8 +9,8 @@ import com.ehtesham.securebank.auth.service.RefreshTokenService;
 import com.ehtesham.securebank.common.enums.Role;
 import com.ehtesham.securebank.common.enums.UserStatus;
 import com.ehtesham.securebank.common.exception.*;
-import com.ehtesham.securebank.notification.EmailService;
-import com.ehtesham.securebank.notification.NotificationEventPublisher;
+
+import com.ehtesham.securebank.notification.publisher.NotificationEventPublisher;
 import com.ehtesham.securebank.otp.enums.OtpPurpose;
 import com.ehtesham.securebank.otp.service.OtpService;
 import com.ehtesham.securebank.security.ratelimit.RateLimiterService;
