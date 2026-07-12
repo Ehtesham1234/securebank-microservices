@@ -12,13 +12,14 @@ import org.springframework.stereotype.Service;
 public class EmailServiceImpl implements EmailService {
 
     private static final Logger log =
-            LoggerFactory.getLogger(EmailService.class);
+            LoggerFactory.getLogger(EmailServiceImpl.class);
 
     private final JavaMailSender mailSender;
 
     public EmailServiceImpl(JavaMailSender mailSender) {
         this.mailSender = mailSender;
     }
+
     @Override
     @Async
     public void sendEmail(String to, String subject, String body) {
@@ -28,9 +29,10 @@ public class EmailServiceImpl implements EmailService {
             message.setSubject(subject);
             message.setText(body);
             mailSender.send(message);
-            log.info("Email sent to {}", to);
+            log.info("Email sent successfully to: {}", to);
         } catch (Exception e) {
-            log.error("Failed to send email to {}: {}", to, e.getMessage());
+            log.error("Failed to send email to {}: {}",
+                    to, e.getMessage());
         }
     }
 }
