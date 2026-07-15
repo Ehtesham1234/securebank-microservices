@@ -18,10 +18,11 @@ public class CorsConfig {
 
         // which frontend origins are allowed to call this API
         configuration.setAllowedOrigins(List.of(
-                "http://localhost:3000",   // React dev server (default)
-                "http://localhost:5173"    // Vite dev server (default)
+                "http://localhost:3000",
+                "http://localhost:5173",
+                "http://localhost:5500",
+                "http://127.0.0.1:5500"
         ));
-
         // which HTTP methods are allowed cross-origin
         configuration.setAllowedMethods(List.of(
                 "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"

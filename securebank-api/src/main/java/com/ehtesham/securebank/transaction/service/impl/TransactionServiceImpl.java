@@ -17,6 +17,7 @@ import com.ehtesham.securebank.transaction.repository.TransactionRepository;
 import com.ehtesham.securebank.transaction.service.TransactionService;
 import com.ehtesham.securebank.user.entity.User;
 import com.ehtesham.securebank.user.repository.UserRepository;
+import com.ehtesham.securebank.websocket.service.WebSocketNotificationService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -34,18 +35,19 @@ public class TransactionServiceImpl implements TransactionService {
     private final AccountService accountService;
     private final UserRepository userRepository;
     private final IdempotencyHelper idempotencyHelper;
-
+    private final WebSocketNotificationService wsNotificationService;
     public TransactionServiceImpl(
             TransactionRepository transactionRepository,
             AccountRepository accountRepository,
             AccountService accountService,
             UserRepository userRepository,
-            IdempotencyHelper idempotencyHelper) {
+            IdempotencyHelper idempotencyHelper, WebSocketNotificationService wsNotificationService) {
         this.transactionRepository = transactionRepository;
         this.accountRepository = accountRepository;
         this.accountService = accountService;
         this.userRepository = userRepository;
         this.idempotencyHelper = idempotencyHelper;
+        this.wsNotificationService = wsNotificationService;
     }
 
     @Auditable(action = "DEPOSIT")
@@ -88,7 +90,15 @@ public class TransactionServiceImpl implements TransactionService {
         transaction.setDescription(request.getDescription());
 
         Transaction saved = transactionRepository.save(transaction);
-
+        // Push live balance update to customer's browser
+        wsNotificationService.sendBalanceUpdate(
+                user.getId(),
+                account.getAccountNumber(),
+                newBalance,
+                request.getAmount(),
+                TransactionType.DEPOSIT,
+                saved.getTransactionRef(),
+                request.getDescription());
         return mapToResponse(saved);
     }
 
@@ -134,7 +144,15 @@ public class TransactionServiceImpl implements TransactionService {
         transaction.setDescription(request.getDescription());
 
         Transaction saved = transactionRepository.save(transaction);
-
+        // Push live balance update to customer's browser
+        wsNotificationService.sendBalanceUpdate(
+                user.getId(),
+                account.getAccountNumber(),
+                newBalance,
+                request.getAmount(),
+                TransactionType.WITHDRAW,
+                saved.getTransactionRef(),
+                request.getDescription());
         return mapToResponse(saved);
     }
     @Auditable(action = "TRANSFER")
@@ -226,6 +244,29 @@ public class TransactionServiceImpl implements TransactionService {
         // just to "re-fetch" it. account and relatedAccount are
         // ALREADY fully-loaded real objects on this exact instance,
         // set just a few lines above, no proxy involved at all.
+
+        // Push to SENDER
+        wsNotificationService.sendBalanceUpdate(
+                user.getId(),
+                fromAccount.getAccountNumber(),
+                fromNewBalance,
+                request.getAmount(),
+                TransactionType.TRANSFER_OUT,
+                sharedRef + "-OUT",
+                request.getDescription());
+
+        // Push to RECEIVER
+        // Need to find receiver's userId
+        toAccount.getUser(); // lazy load — we're inside @Transactional
+        wsNotificationService.sendBalanceUpdate(
+                toAccount.getUser().getId(),
+                toAccount.getAccountNumber(),
+                toNewBalance,
+                request.getAmount(),
+                TransactionType.TRANSFER_IN,
+                sharedRef + "-IN",
+                request.getDescription());
+
         return mapToResponse(savedOutgoing);
     }
 

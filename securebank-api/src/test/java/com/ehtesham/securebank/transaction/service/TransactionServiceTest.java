@@ -16,13 +16,13 @@ import com.ehtesham.securebank.transaction.service.impl.IdempotencyHelper;
 import com.ehtesham.securebank.transaction.service.impl.TransactionServiceImpl;
 import com.ehtesham.securebank.user.entity.User;
 import com.ehtesham.securebank.user.repository.UserRepository;
+import com.ehtesham.securebank.websocket.service.WebSocketNotificationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -46,7 +46,7 @@ class TransactionServiceTest {
 
     private IdempotencyHelper idempotencyHelper;
     private TransactionServiceImpl transactionService;
-
+    private WebSocketNotificationService wsNotificationService;
     private User testUser;
     private Account testAccount;
 
@@ -63,7 +63,8 @@ class TransactionServiceTest {
                 accountRepository,
                 accountService,
                 userRepository,
-                idempotencyHelper);
+                idempotencyHelper,
+                wsNotificationService);
 
         testUser = new User();
         testUser.setId(1L);
