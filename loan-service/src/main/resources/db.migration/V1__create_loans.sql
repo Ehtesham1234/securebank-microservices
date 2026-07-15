@@ -1,0 +1,26 @@
+CREATE TABLE loans (
+                       id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                       loan_ref VARCHAR(50) NOT NULL UNIQUE,
+                       user_id BIGINT NOT NULL,
+                       account_id BIGINT NOT NULL,
+                       reviewed_by_user_id BIGINT,
+                       loan_type VARCHAR(30) NOT NULL,
+                       status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+                       principal_amount DECIMAL(19,4) NOT NULL,
+                       interest_rate DECIMAL(5,2) NOT NULL,
+                       tenure_months INT NOT NULL,
+                       emi_amount DECIMAL(19,4),
+                       total_payable_amount DECIMAL(19,4),
+                       outstanding_amount DECIMAL(19,4),
+                       emis_paid INT NOT NULL DEFAULT 0,
+                       next_emi_date DATE,
+                       disbursement_date DATE,
+                       rejection_reason VARCHAR(500),
+                       purpose VARCHAR(500),
+                       user_email VARCHAR(255),
+                       account_number VARCHAR(20),
+                       version BIGINT NOT NULL DEFAULT 0,
+                       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                           ON UPDATE CURRENT_TIMESTAMP
+);
