@@ -231,7 +231,7 @@ public class AuthServiceImpl implements AuthService {
                                 "Invalid email or password"));
 
         String accessToken = jwtService.generateToken(
-                user.getEmail(), "ROLE_" + user.getRole().name());
+                user.getEmail(), "ROLE_" + user.getRole().name() ,user.getId());
 
         RefreshToken refreshToken = refreshTokenService.createRefreshToken(user);
 
@@ -249,7 +249,7 @@ public class AuthServiceImpl implements AuthService {
 
         String newAccessToken = jwtService.generateToken(
                 newRefreshToken.getUser().getEmail(),
-                "ROLE_" + newRefreshToken.getUser().getRole().name());
+                "ROLE_" + newRefreshToken.getUser().getRole().name() ,newRefreshToken.getUser().getId());
 
         return new AuthResponse(
                 newAccessToken,

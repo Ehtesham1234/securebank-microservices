@@ -24,10 +24,11 @@ public class JwtService {
     }
 
     // role embedded in token at generation
-    public String generateToken(String email, String role) {
+    public String generateToken(String email, String role , Long userId) {
         return Jwts.builder()
                 .subject(email)
-                .claim("role", role)        // ← embed role
+                .claim("role", role)// ← embed role
+                .claim("userId", userId.toString())
                 .issuedAt(new Date())
                 .expiration(new Date(
                         System.currentTimeMillis() + jwtExpiration))

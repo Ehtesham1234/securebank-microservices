@@ -216,7 +216,7 @@ class AuthServiceTest {
                     .thenReturn(null); // authentication succeeds
             when(userRepository.findByEmail(testUser.getEmail()))
                     .thenReturn(Optional.of(testUser));
-            when(jwtService.generateToken(anyString(), anyString()))
+            when(jwtService.generateToken(anyString(), anyString() , anyLong()))
                     .thenReturn("mock.jwt.access.token");
             when(refreshTokenService.createRefreshToken(any()))
                     .thenReturn(mockToken);
