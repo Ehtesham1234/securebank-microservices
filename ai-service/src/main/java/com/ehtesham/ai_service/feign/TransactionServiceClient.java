@@ -1,0 +1,23 @@
+package com.ehtesham.ai_service.feign;
+
+import com.ehtesham.ai_service.dto.TransactionSummary;
+import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
+
+import java.util.List;
+
+@FeignClient(
+        name = "securebank-api",
+        fallback = TransactionServiceClientFallback.class)
+public interface TransactionServiceClient {
+
+    @GetMapping("/api/v1/accounts/{accountId}/transactions")
+    List<TransactionSummary> getTransactionHistory(
+            @PathVariable Long accountId,
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size);
+}
