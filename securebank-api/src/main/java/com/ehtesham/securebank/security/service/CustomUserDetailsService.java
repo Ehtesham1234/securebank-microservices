@@ -46,4 +46,37 @@ public class CustomUserDetailsService implements UserDetailsService {
                 ))
         );
     }
+    /**
+     * Builds a CustomUserPrincipal from gateway headers.
+     * Used when requests come through the API gateway —
+     * no DB hit needed since gateway already validated the JWT.
+     */
+    public CustomUserPrincipal buildPrincipalFromHeaders(
+            Long userId, String email,
+            String role, String userStatus) {
+
+        UserStatus status = UserStatus.ACTIVE;
+        try {
+            if (userStatus != null && !userStatus.isBlank()) {
+                status = UserStatus.valueOf(userStatus);
+            }
+        } catch (IllegalArgumentException e) {
+            // Unknown status — default to ACTIVE, let
+            // downstream filters handle edge cases
+        }
+
+        return new CustomUserPrincipal(
+                userId,
+                email != null ? email : "",
+                // No password needed — already authenticated
+                // by gateway. Empty string is safe here.
+                "",
+                status,
+                // No lock info from headers — not locked
+                null,
+                // Email already verified (they're logged in)
+                true,
+                List.of(new SimpleGrantedAuthority(
+                        role != null ? role : "")));
+    }
 }

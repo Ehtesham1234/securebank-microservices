@@ -19,19 +19,19 @@ public class SchedulerController {
         this.bankingScheduler = bankingScheduler;
     }
 
-    @PostMapping("/credit-card-statements")
-    public ResponseEntity<ApiResponse<Void>> triggerStatements() {
-        bankingScheduler.generateCreditCardStatements();
-        return ResponseEntity.ok(ApiResponse.success(
-                "Statement generation triggered"));
-    }
-
-    @PostMapping("/overdue-emis")
-    public ResponseEntity<ApiResponse<Void>> triggerOverdueCheck() {
-        bankingScheduler.markOverdueEmiPayments();
-        return ResponseEntity.ok(ApiResponse.success(
-                "Overdue EMI check triggered"));
-    }
+//    @PostMapping("/credit-card-statements")
+//    public ResponseEntity<ApiResponse<Void>> triggerStatements() {
+//        bankingScheduler.generateCreditCardStatements();
+//        return ResponseEntity.ok(ApiResponse.success(
+//                "Statement generation triggered"));
+//    }
+//
+//    @PostMapping("/overdue-emis")
+//    public ResponseEntity<ApiResponse<Void>> triggerOverdueCheck() {
+//        bankingScheduler.markOverdueEmiPayments();
+//        return ResponseEntity.ok(ApiResponse.success(
+//                "Overdue EMI check triggered"));
+//    }
 
     @PostMapping("/cleanup-otps")
     public ResponseEntity<ApiResponse<Void>> triggerOtpCleanup() {
@@ -46,10 +46,10 @@ public class SchedulerController {
         return ResponseEntity.ok(ApiResponse.success(
                 "Token cleanup triggered"));
     }
-    @PostMapping("/expired-cards")
-    public ResponseEntity<ApiResponse<Void>> triggerMarkExpiredCards() {
-        bankingScheduler.markExpiredCards();
-        return ResponseEntity.ok(ApiResponse.success(
-                "Expired Cards triggered"));
-    }
+//    @PostMapping("/expired-cards")
+//    public ResponseEntity<ApiResponse<Void>> triggerMarkExpiredCards() {
+//        bankingScheduler.markExpiredCards();
+//        return ResponseEntity.ok(ApiResponse.success(
+//                "Expired Cards triggered"));
+//    }
 }

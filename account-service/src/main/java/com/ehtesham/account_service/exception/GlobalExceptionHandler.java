@@ -1,4 +1,4 @@
-package com.ehtesham.account_service.exception;
+package com.ehtesham.account_service.account.exception;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

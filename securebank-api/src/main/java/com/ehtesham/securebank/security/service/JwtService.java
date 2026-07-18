@@ -1,5 +1,6 @@
 package com.ehtesham.securebank.security.service;
 
+import com.ehtesham.securebank.common.enums.UserStatus;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -24,11 +25,12 @@ public class JwtService {
     }
 
     // role embedded in token at generation
-    public String generateToken(String email, String role , Long userId) {
+    public String generateToken(String email, String role , Long userId , UserStatus userStatus) {
         return Jwts.builder()
                 .subject(email)
                 .claim("role", role)// ← embed role
                 .claim("userId", userId.toString())
+                .claim("userStatus", userStatus.name())
                 .issuedAt(new Date())
                 .expiration(new Date(
                         System.currentTimeMillis() + jwtExpiration))

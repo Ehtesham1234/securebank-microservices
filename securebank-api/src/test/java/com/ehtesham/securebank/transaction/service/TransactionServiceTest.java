@@ -3,8 +3,6 @@ package com.ehtesham.securebank.transaction.service;
 import com.ehtesham.securebank.account.entity.Account;
 import com.ehtesham.securebank.account.repository.AccountRepository;
 import com.ehtesham.securebank.account.service.AccountService;
-import com.ehtesham.securebank.common.enums.AccountStatus;
-import com.ehtesham.securebank.common.enums.AccountType;
 import com.ehtesham.securebank.common.exception.InsufficientFundsException;
 import com.ehtesham.securebank.transaction.dto.DepositRequest;
 import com.ehtesham.securebank.transaction.dto.TransactionResponse;
