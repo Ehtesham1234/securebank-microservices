@@ -158,5 +158,18 @@ services:
     ports:
       - "8090:8090"
 
+  ai-service:
+    build:
+      context: ./ai-service
+    container_name: securebank-ai
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      AI_MODEL: ${AI_MODEL:google/gemini-2.5-flash:free}
+    ports:
+      - "8085:8085"
 volumes:
   mysql_data:
