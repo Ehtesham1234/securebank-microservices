@@ -1,6 +1,6 @@
-package com.ehtesham.account_service.config;
+package com.ehtesham.account_service.account.config;
 
-import com.ehtesham.account_service.dto.LoanApprovedEvent;
+import com.ehtesham.account_service.account.dto.LoanApprovedEvent;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.beans.factory.annotation.Value;

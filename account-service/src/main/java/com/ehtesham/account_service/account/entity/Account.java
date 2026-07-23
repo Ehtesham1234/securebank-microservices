@@ -1,8 +1,8 @@
-package com.ehtesham.account_service.entity;
+package com.ehtesham.account_service.account.entity;
 
 
-import com.ehtesham.account_service.enums.AccountStatus;
-import com.ehtesham.account_service.enums.AccountType;
+import com.ehtesham.account_service.account.enums.AccountStatus;
+import com.ehtesham.account_service.account.enums.AccountType;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;

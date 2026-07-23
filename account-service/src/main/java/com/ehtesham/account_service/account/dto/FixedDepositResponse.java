@@ -1,4 +1,4 @@
-package com.ehtesham.account_service.dto;
+package com.ehtesham.account_service.account.dto;
 
 import lombok.*;
 import java.math.BigDecimal;

@@ -39,7 +39,6 @@ public class AuthServiceImpl implements AuthService {
     private final JwtService jwtService;
     private final RefreshTokenService refreshTokenService;
     private final OtpService otpService;
-//    private final EmailService emailService;
     private final NotificationEventPublisher notificationPublisher;
     private final AuthenticationManager authenticationManager;
     private final RateLimiterService rateLimiterService;
@@ -49,7 +48,6 @@ public class AuthServiceImpl implements AuthService {
             PasswordEncoder passwordEncoder,
             JwtService jwtService,
             RefreshTokenService refreshTokenService, OtpService otpService,
-//            EmailService emailService,
             NotificationEventPublisher notificationPublisher, AuthenticationManager authenticationManager, RateLimiterService rateLimiterService, LoginAttemptService loginAttemptService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
@@ -57,7 +55,6 @@ public class AuthServiceImpl implements AuthService {
         this.refreshTokenService = refreshTokenService;
         this.otpService = otpService;
         this.notificationPublisher = notificationPublisher;
-//        this.emailService = emailService;
         this.authenticationManager = authenticationManager;
         this.rateLimiterService = rateLimiterService;
         this.loginAttemptService = loginAttemptService;
@@ -90,8 +87,6 @@ public class AuthServiceImpl implements AuthService {
             String otp = otpService.generateAndSaveOtp(
                     existingUser.getEmail(), OtpPurpose.EMAIL_VERIFICATION);
 
-//            emailService.sendOtpEmail(
-//                    existingUser.getEmail(), otp, "Email Verification");
             notificationPublisher.publishOtpEmail(existingUser.getEmail(), otp, "Email Verification");
 
 
@@ -119,8 +114,6 @@ public class AuthServiceImpl implements AuthService {
         String otp = otpService.generateAndSaveOtp(
                 savedUser.getEmail(), OtpPurpose.EMAIL_VERIFICATION);
 
-//        emailService.sendOtpEmail(
-//                savedUser.getEmail(), otp, "Email Verification");
         notificationPublisher.publishOtpEmail(savedUser.getEmail(), otp, "Email Verification");
 
         return UserResponse.builder()
@@ -362,8 +355,6 @@ public class AuthServiceImpl implements AuthService {
 
         String otp = otpService.generateAndSaveOtp(
                 email, OtpPurpose.EMAIL_VERIFICATION);
-
-//        emailService.sendOtpEmail(email, otp ,"Email Verification");   // REUSES existing method, no new EmailService method needed
         notificationPublisher.publishOtpEmail(email, otp ,"Email Verification");
     }
 

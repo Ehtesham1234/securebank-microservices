@@ -38,3 +38,5 @@ build/
 # Environment
 .env
 *.env
+# Secrets
+application-local.properties

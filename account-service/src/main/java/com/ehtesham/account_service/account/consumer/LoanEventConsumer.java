@@ -1,8 +1,8 @@
-package com.ehtesham.account_service.consumer;
+package com.ehtesham.account_service.account.consumer;
 
 
-import com.ehtesham.account_service.dto.LoanApprovedEvent;
-import com.ehtesham.account_service.service.AccountService;
+import com.ehtesham.account_service.account.dto.LoanApprovedEvent;
+import com.ehtesham.account_service.account.service.AccountService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;

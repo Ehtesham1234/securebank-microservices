@@ -30,7 +30,10 @@ public class AuthController {
     public ResponseEntity<ApiResponse<UserResponse>> register(
             @Valid @RequestBody RegisterRequest request,
             HttpServletRequest httpRequest) {
-
+        // Use real client IP, not gateway IP
+//        String clientIp = getClientIp(httpRequest);
+//        UserResponse response = authService.register(
+//                request, clientIp);
         String clientIp = httpRequest.getRemoteAddr();
 
         UserResponse user = authService.register(request, clientIp);
@@ -84,7 +87,7 @@ public class AuthController {
                 ApiResponse.success("Password reset successful"));
     }
 
-//    to use when some one delayed or did not see otp want to generate new otp
+//    to use when someone delayed or did not see otp want to generate new otp
     @PostMapping("/email/send-otp")
     public ResponseEntity<ApiResponse<Void>> sendEmailVerificationOtp(
             @Valid @RequestBody EmailOnlyRequest request) {
@@ -110,5 +113,15 @@ public class AuthController {
                 ApiResponse.success("Email verified successfully"));
     }
 
-
+    // Add this helper method to AuthController:
+    private String getClientIp(HttpServletRequest request) {
+        // Gateway forwards real client IP in this header
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            // X-Forwarded-For can be comma-separated list
+            // first IP is the original client
+            return forwarded.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
+    }
 }

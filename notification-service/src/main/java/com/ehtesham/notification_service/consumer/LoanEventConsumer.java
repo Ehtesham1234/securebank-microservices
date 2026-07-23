@@ -25,10 +25,10 @@ public class LoanEventConsumer {
         this.emailService = emailService;
         this.objectMapper = objectMapper;
     }
-
     @KafkaListener(
             topics = "loan-events",
-            groupId = "notification-loan-group")
+            groupId = "notification-loan-group",
+            containerFactory = "stringKafkaListenerContainerFactory")
     public void handleLoanEvent(
             @Payload String payload,
             @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,

@@ -1,4 +1,4 @@
-package com.ehtesham.account_service.entity;
+package com.ehtesham.account_service.account.entity;
 
 import jakarta.persistence.*;
 import lombok.Getter;

@@ -1,4 +1,4 @@
-package com.ehtesham.account_service.config;
+package com.ehtesham.account_service.account.config;
 
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringSerializer;

@@ -1,4 +1,4 @@
-package com.ehtesham.account_service.outbox;
+package com.ehtesham.account_service.account.outbox;
 
 import jakarta.persistence.*;
 import lombok.Getter;

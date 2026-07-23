@@ -1,6 +1,6 @@
-package com.ehtesham.account_service.dto;
+package com.ehtesham.account_service.account.dto;
 
-import com.ehtesham.account_service.enums.AccountType;
+import com.ehtesham.account_service.account.enums.AccountType;
 import jakarta.validation.constraints.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;

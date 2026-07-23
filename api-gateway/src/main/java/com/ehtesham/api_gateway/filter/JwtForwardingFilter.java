@@ -34,7 +34,7 @@ public class JwtForwardingFilter implements GlobalFilter, Ordered {
     private static final String HEADER_EMAIL = "X-User-Email";
     private static final String HEADER_ID = "X-User-Id";
     private static final String HEADER_ROLE = "X-User-Role";
-
+    private static final String HEADER_STATUS ="X-User-Status";
     @Value("${jwt.secret}")
     private String jwtSecret;
 
@@ -114,7 +114,7 @@ public class JwtForwardingFilter implements GlobalFilter, Ordered {
             String email = claims.getSubject();
             String userId = claims.get("userId", String.class);
             String role = claims.get("role", String.class);
-
+            String userStatus = claims.get("userStatus", String.class);
             ServerHttpRequest modifiedRequest =
                     exchange.getRequest()
                             .mutate()
@@ -131,6 +131,10 @@ public class JwtForwardingFilter implements GlobalFilter, Ordered {
                                 headers.set(
                                         HEADER_ROLE,
                                         role != null ? role : "");
+
+                                headers.set(
+                                        HEADER_STATUS,
+                                        userStatus != null ? userStatus : "");
 
                             })
                             .build();

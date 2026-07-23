@@ -42,7 +42,6 @@ class AuthServiceTest {
     @Mock private JwtService jwtService;
     @Mock private RefreshTokenService refreshTokenService;
     @Mock private OtpService otpService;
-//    @Mock private EmailService emailService;
     @Mock private NotificationEventPublisher notificationPublisher;
     @Mock private AuthenticationManager authenticationManager;
     @Mock private RateLimiterService rateLimiterService;

@@ -1,21 +1,20 @@
-package com.ehtesham.account_service.service;
+package com.ehtesham.account_service.account.service;
 
-
-import com.ehtesham.account_service.dto.*;
-import com.ehtesham.account_service.entity.Account;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
+import com.ehtesham.account_service.account.dto.AccountApplicationRequest;
+import com.ehtesham.account_service.account.dto.AccountResponse;
+import com.ehtesham.account_service.account.dto.AccountValidationResponse;
+import com.ehtesham.account_service.account.entity.Account;
 
 import java.math.BigDecimal;
 import java.util.List;
 
 public interface AccountService {
 
-    // called internally when KYC verified
-    // userId passed as Long instead of User entity
+    // Called by kyc-service via internal endpoint
     AccountResponse createSavingsAccount(Long userId,
                                          String firstName, String lastName);
 
+    // userId from SecurityContext — not from User entity
     AccountResponse applyForAccount(
             AccountApplicationRequest request, Long userId);
 
@@ -31,6 +30,7 @@ public interface AccountService {
 
     AccountResponse closeAccount(Long id);
 
+    // Takes Long userId instead of User entity
     Account getOwnedAccount(Long accountId, Long userId);
 
     AccountValidationResponse validateAccount(

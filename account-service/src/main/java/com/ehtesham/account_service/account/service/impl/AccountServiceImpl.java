@@ -1,18 +1,18 @@
-package com.ehtesham.account_service.service.impl;
+package com.ehtesham.account_service.account.service.impl;
 
 
-import com.ehtesham.account_service.dto.*;
-import com.ehtesham.account_service.entity.Account;
-import com.ehtesham.account_service.entity.FixedDepositDetails;
-import com.ehtesham.account_service.enums.AccountStatus;
-import com.ehtesham.account_service.enums.AccountType;
+import com.ehtesham.account_service.account.dto.*;
+import com.ehtesham.account_service.account.entity.Account;
+import com.ehtesham.account_service.account.entity.FixedDepositDetails;
+import com.ehtesham.account_service.account.enums.AccountStatus;
+import com.ehtesham.account_service.account.enums.AccountType;
 import com.ehtesham.account_service.exception.AccountNotFoundException;
 import com.ehtesham.account_service.exception.AccountOperationException;
-import com.ehtesham.account_service.outbox.OutboxEvent;
-import com.ehtesham.account_service.outbox.OutboxRepository;
-import com.ehtesham.account_service.repository.AccountRepository;
-import com.ehtesham.account_service.repository.FixedDepositDetailsRepository;
-import com.ehtesham.account_service.service.AccountService;
+import com.ehtesham.account_service.account.outbox.OutboxEvent;
+import com.ehtesham.account_service.account.outbox.OutboxRepository;
+import com.ehtesham.account_service.account.repository.AccountRepository;
+import com.ehtesham.account_service.account.repository.FixedDepositDetailsRepository;
+import com.ehtesham.account_service.account.service.AccountService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -24,7 +24,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Random;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -57,10 +57,19 @@ public class AccountServiceImpl implements AccountService {
     public AccountResponse createSavingsAccount(Long userId,
                                                 String firstName, String lastName) {
 
-        if (accountRepository.existsByUserIdAndAccountType(
-                userId, AccountType.SAVINGS)) {
-            throw new AccountOperationException(
-                    "User already has a SAVINGS account");
+        // This handles Feign retries gracefully
+        Optional<Account> existing = accountRepository
+                .findByUserIdAndAccountTypeAndAccountStatus(
+                        userId,
+                        AccountType.SAVINGS,
+                        AccountStatus.ACTIVE);
+
+        if (existing.isPresent()) {
+            log.info("Savings account already exists for " +
+                            "userId={}, returning existing: {}",
+                    userId,
+                    existing.get().getAccountNumber());
+            return mapToResponse(existing.get());
         }
 
         Account account = new Account();
