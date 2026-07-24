@@ -6,6 +6,7 @@ import com.ehtesham.account_service.transaction.dto.TransactionResponse;
 import com.ehtesham.account_service.transaction.dto.TransferRequest;
 import com.ehtesham.account_service.transaction.dto.WithdrawRequest;
 import com.ehtesham.account_service.transaction.service.TransactionService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -17,6 +18,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/v1")
+@Tag(name = "Transactions",
+        description = "Deposit, withdraw, transfer with idempotency")
 public class TransactionController {
 
     private final TransactionService transactionService;

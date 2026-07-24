@@ -3,6 +3,7 @@ package com.ehtesham.loan_service.controller;
 import com.ehtesham.loan_service.dto.*;
 import com.ehtesham.loan_service.dto.response.ApiResponse;
 import com.ehtesham.loan_service.service.LoanService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -13,6 +14,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/v1")
+@Tag(name = "Loans",
+        description = "Loan applications, approvals, EMI payments with Saga disbursement")
+
 public class LoanController {
 
     private final LoanService loanService;

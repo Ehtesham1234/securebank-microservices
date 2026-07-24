@@ -7,6 +7,7 @@ import com.ehtesham.kyc_service.dto.response.ApiResponse;
 import com.ehtesham.kyc_service.service.KycService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -18,6 +19,8 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1")
+@Tag(name = "KYC",
+        description = "KYC document submission and verification workflow")
 public class KycController {
 
     private final KycService kycService;

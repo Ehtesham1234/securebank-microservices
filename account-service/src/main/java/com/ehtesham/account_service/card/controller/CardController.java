@@ -5,6 +5,7 @@ import com.ehtesham.account_service.card.dto.CreditCardRequest;
 import com.ehtesham.account_service.card.dto.StatementResponse;
 import com.ehtesham.account_service.card.service.CardService;
 import com.ehtesham.account_service.common.response.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -15,6 +16,8 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/cards")
+@Tag(name = "Cards",
+        description = "Debit and credit card management")
 public class CardController {
 
     private final CardService cardService;

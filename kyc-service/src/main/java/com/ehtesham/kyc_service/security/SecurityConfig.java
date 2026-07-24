@@ -35,7 +35,11 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/api/v1/internal/**",
                                 "/actuator/health",
-                                "/actuator/info")
+                                "/actuator/info",
+                                // Swagger — allow in dev
+                                "/v3/api-docs/**",
+                                "/swagger-ui/**",
+                                "/swagger-ui.html")
                         .permitAll()
                         .anyRequest().authenticated()
                 )

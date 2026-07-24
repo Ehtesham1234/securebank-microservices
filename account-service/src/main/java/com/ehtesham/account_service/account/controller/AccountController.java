@@ -3,6 +3,7 @@ package com.ehtesham.account_service.account.controller;
 import com.ehtesham.account_service.account.dto.*;
 import com.ehtesham.account_service.account.service.AccountService;
 import com.ehtesham.account_service.common.response.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -12,6 +13,9 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1")
+@Tag(name = "Accounts",
+        description = "Account management — create, view, freeze, close")
+
 public class AccountController {
 
     private final AccountService accountService;
