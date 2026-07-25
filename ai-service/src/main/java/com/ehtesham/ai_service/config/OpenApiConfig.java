@@ -36,7 +36,7 @@ public class OpenApiConfig {
                                 .url("http://localhost:8085")
                                 .description("Local development"),
                         new Server()
-                                .url("http://localhost:8080")
+                                .url("http://localhost:8090")
                                 .description("Via API Gateway")));
     }
 }

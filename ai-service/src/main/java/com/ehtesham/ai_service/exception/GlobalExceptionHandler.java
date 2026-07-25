@@ -13,22 +13,6 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import java.time.Instant;
 import java.util.List;
 
-/**
- * NEW — the original service had no exception handling layer at all.
- * Without this, three real problems would show up under normal use:
- *
- *   1. @Valid failures on ChatRequest (blank/too-long question) fell
- *      through to Spring's default error handling, returning a generic,
- *      unstructured 400 body the frontend can't parse consistently.
- *   2. A missing/invalid X-User-Id header (e.g. calling ai-service
- *      directly while testing, bypassing the gateway) causes
- *      SecurityContextHolder.get() to throw IllegalStateException,
- *      which — uncaught — surfaces as a 500 with a stack trace in the
- *      response body. That's an information leak and the wrong status
- *      code; it should be a clean 401.
- *   3. The new @RateLimiter on AiController throws RequestNotPermitted
- *      once the limit is hit; uncaught, that's also an unstructured 500.
- */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -49,8 +33,8 @@ public class GlobalExceptionHandler {
                 .build());
     }
 
-    @ExceptionHandler(IllegalStateException.class)
-    public ResponseEntity<ErrorResponse> handleMissingSecurityContext(IllegalStateException ex) {
+    @ExceptionHandler(UnauthenticatedException.class)
+    public ResponseEntity<ErrorResponse> handleMissingSecurityContext(UnauthenticatedException ex) {
         log.warn("Request rejected — no verified security context: {}", ex.getMessage());
 
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ErrorResponse.builder()

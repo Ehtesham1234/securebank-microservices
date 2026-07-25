@@ -6,39 +6,22 @@ import com.ehtesham.ai_service.dto.TransactionSummary;
 import com.ehtesham.ai_service.feign.AccountServiceClient;
 import com.ehtesham.ai_service.feign.LoanServiceClient;
 import com.ehtesham.ai_service.feign.TransactionServiceClient;
-import com.ehtesham.ai_service.security.SecurityContextHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
 
-/**
- * Banking tools exposed to the AI model via @Tool.
- *
- * SECURITY: userId is ALWAYS sourced from SecurityContextHolder (populated
- * from verified gateway headers), never from model output. The model
- * describes WHAT to fetch; the service decides WHO is asking based on the
- * verified request context.
- *
- * FIX: every @Tool below previously put its long, multi-line description
- * into the `name` attribute (and left `description` unset). @Tool.name is
- * meant to be a short machine identifier — the docs explicitly recommend
- * sticking to alphanumerics/underscores/hyphens/dots, because spaces or
- * punctuation in a function name break tool-calling on several providers
- * (notably OpenAI-compatible APis, which is exactly what this service
- * targets). The long prose belongs in `description`, which is what the
- * model actually reads to decide when to call the tool. Left as-is, this
- * would likely have caused tool calls to fail or be silently skipped
- * depending on which provider/model you pointed AI_MODEL at.
- */
 @Component
 public class BankingTools {
 
     private static final Logger log = LoggerFactory.getLogger(BankingTools.class);
+    public static final String USER_ID_CONTEXT_KEY = "userId";
 
     private final AccountServiceClient accountClient;
     private final LoanServiceClient loanClient;
@@ -53,9 +36,22 @@ public class BankingTools {
         this.transactionClient = transactionClient;
     }
 
+    private Long userId(ToolContext toolContext) {
+        Object value = toolContext.getContext().get(USER_ID_CONTEXT_KEY);
+        if (!(value instanceof Long userId)) {
+            // Fails loudly rather than falling back to some default —
+            // a tool call with no verified user id must never proceed.
+            throw new IllegalStateException(
+                    "Tool invoked with no verified userId in ToolContext. " +
+                            "This indicates a wiring bug in BankingAiService, " +
+                            "not a client-facing condition.");
+        }
+        return userId;
+    }
+
     @Tool(
-        name = "get_user_accounts",
-        description = """
+            name = "get_user_accounts",
+            description = """
             Get all bank accounts belonging to the current user.
             Returns account number, type (SAVINGS/CURRENT/FIXED_DEPOSIT),
             status (ACTIVE/FROZEN/CLOSED), and current balance.
@@ -63,8 +59,8 @@ public class BankingTools {
             available funds, or account status.
             """
     )
-    public List<AccountSummary> getUserAccounts() {
-        Long userId = SecurityContextHolder.get().getUserId();
+    public List<AccountSummary> getUserAccounts(ToolContext toolContext) {
+        Long userId = userId(toolContext);
         log.info("Tool: get_user_accounts(userId={})", userId);
         List<AccountSummary> accounts = accountClient.getMyAccounts(userId);
         log.info("Tool: get_user_accounts returned {} accounts", accounts.size());
@@ -72,8 +68,8 @@ public class BankingTools {
     }
 
     @Tool(
-        name = "get_user_loans",
-        description = """
+            name = "get_user_loans",
+            description = """
             Get all loans belonging to the current user.
             Returns loan reference, type (PERSONAL/HOME/CAR),
             status (PENDING/ACTIVE/CLOSED/DEFAULTED), principal amount,
@@ -83,8 +79,8 @@ public class BankingTools {
             outstanding balance, or loan repayment schedule.
             """
     )
-    public List<LoanSummary> getUserLoans() {
-        Long userId = SecurityContextHolder.get().getUserId();
+    public List<LoanSummary> getUserLoans(ToolContext toolContext) {
+        Long userId = userId(toolContext);
         log.info("Tool: get_user_loans(userId={})", userId);
         List<LoanSummary> loans = loanClient.getMyLoans(userId, 0, 10);
         log.info("Tool: get_user_loans returned {} loans", loans.size());
@@ -92,8 +88,8 @@ public class BankingTools {
     }
 
     @Tool(
-        name = "get_transaction_history",
-        description = """
+            name = "get_transaction_history",
+            description = """
             Get recent transaction history for the user's account.
             Requires the account ID (obtained from get_user_accounts).
             Returns transaction reference, type (DEPOSIT/WITHDRAW/
@@ -104,8 +100,10 @@ public class BankingTools {
             happened to their money.
             """
     )
-    public List<TransactionSummary> getTransactionHistory(Long accountId) {
-        Long userId = SecurityContextHolder.get().getUserId();
+    public List<TransactionSummary> getTransactionHistory(
+            @ToolParam(description = "Account ID, obtained from get_user_accounts") Long accountId,
+            ToolContext toolContext) {
+        Long userId = userId(toolContext);
         log.info("Tool: get_transaction_history(accountId={}, userId={})", accountId, userId);
         List<TransactionSummary> txns =
                 transactionClient.getTransactionHistory(accountId, userId, 0, 20);
@@ -114,8 +112,8 @@ public class BankingTools {
     }
 
     @Tool(
-        name = "calculate_spending_analysis",
-        description = """
+            name = "calculate_spending_analysis",
+            description = """
             Calculate a detailed spending analysis for the user's account.
             Requires the account ID (obtained from get_user_accounts).
             Returns:
@@ -128,9 +126,11 @@ public class BankingTools {
             'what is my cash flow', or 'how much money came in'.
             """
     )
-    public SpendingAnalysis calculateSpendingAnalysis(Long accountId) {
+    public SpendingAnalysis calculateSpendingAnalysis(
+            @ToolParam(description = "Account ID, obtained from get_user_accounts") Long accountId,
+            ToolContext toolContext) {
 
-        Long userId = SecurityContextHolder.get().getUserId();
+        Long userId = userId(toolContext);
         log.info("Tool: calculate_spending_analysis(accountId={}, userId={})", accountId, userId);
 
         List<TransactionSummary> txns =
