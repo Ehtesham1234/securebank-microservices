@@ -1,5 +1,6 @@
 package com.ehtesham.securebank.auth.service;
 
+
 import com.ehtesham.securebank.auth.dto.LoginRequest;
 import com.ehtesham.securebank.auth.dto.RegisterRequest;
 import com.ehtesham.securebank.auth.entity.RefreshToken;
@@ -19,6 +20,7 @@ import com.ehtesham.securebank.user.entity.User;
 import com.ehtesham.securebank.user.repository.UserRepository;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -215,7 +217,7 @@ class AuthServiceTest {
                     .thenReturn(null); // authentication succeeds
             when(userRepository.findByEmail(testUser.getEmail()))
                     .thenReturn(Optional.of(testUser));
-            when(jwtService.generateToken(anyString(), anyString() , anyLong()))
+            when(jwtService.generateToken(anyString(), anyString() , anyLong() , UserStatus.valueOf(ArgumentMatchers.anyString())))
                     .thenReturn("mock.jwt.access.token");
             when(refreshTokenService.createRefreshToken(any()))
                     .thenReturn(mockToken);
