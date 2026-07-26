@@ -1,6 +1,9 @@
 version: '3.8'
 
 services:
+
+  # ── Infrastructure ─────────────────────────────────────────────
+
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
     container_name: securebank-zookeeper
@@ -17,31 +20,21 @@ services:
       - zookeeper
     ports:
       - "9092:9092"
+      - "9093:9093"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9093,EXTERNAL://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     healthcheck:
-      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
+      test: ["CMD-SHELL",
+             "kafka-topics --bootstrap-server localhost:9092 --list"]
       interval: 10s
       retries: 5
       start_period: 30s
-
-  eureka-server:
-    build:
-      context: ./eureka-server
-    container_name: securebank-eureka
-    ports:
-      - "8761:8761"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8761/actuator/health || exit 1"]
-      interval: 10s
-      retries: 5
-      start_period: 20s
 
   db:
     image: mysql:8.0
@@ -55,10 +48,67 @@ services:
       - mysql_data:/var/lib/mysql
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost",
+             "-u", "root", "-p${DB_ROOT_PASSWORD}"]
       interval: 10s
+      timeout: 5s
       retries: 5
       start_period: 30s
+
+  eureka-server:
+    build:
+      context: ./eureka-server
+    container_name: securebank-eureka
+    ports:
+      - "8761:8761"
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+    healthcheck:
+      test: ["CMD", "curl", "-f",
+             "http://localhost:8761/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # ── API Gateway ────────────────────────────────────────────────
+  # NOTE: even with every dependency healthy, Eureka registration is not
+  # instantaneous. A downstream service becomes "healthy" before the
+  # gateway's local Eureka client necessarily knows about it. The
+  # EUREKA_CLIENT_REGISTRY_FETCH_INTERVAL_SECONDS override below makes the
+  # gateway refresh its registry cache every 5s instead of the 30s default,
+  # which shrinks (but doesn't 100% eliminate) that cold-start window.
+  api-gateway:
+    build:
+      context: ./api-gateway
+    container_name: securebank-gateway
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      securebank-api:
+        condition: service_healthy
+      account-service:
+        condition: service_healthy
+      kyc-service:
+        condition: service_healthy
+      loan-service:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      JWT_SECRET: ${JWT_SECRET}
+      EUREKA_CLIENT_REGISTRY_FETCH_INTERVAL_SECONDS: "5"
+    ports:
+      - "8090:8090"
+    healthcheck:
+      test: ["CMD", "curl", "-f",
+             "http://localhost:8090/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 180s
+
+  # ── Core Services ──────────────────────────────────────────────
 
   securebank-api:
     build:
@@ -74,16 +124,28 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: prod
       DB_URL: jdbc:mysql://db:3306/securebank
-      DB_USERNAME: ${DB_USERNAME}
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_ROOT_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       MAIL_HOST: ${MAIL_HOST}
+      MAIL_PORT: ${MAIL_PORT:-587}
       MAIL_USERNAME: ${MAIL_USERNAME}
       MAIL_PASSWORD: ${MAIL_PASSWORD}
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9093
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      FILE_UPLOAD_PATH: /app/uploads
+      EUREKA_INSTANCE_LEASE_RENEWAL_INTERVAL_IN_SECONDS: "5"
     ports:
       - "8081:8081"
+    volumes:
+      - uploads_data:/app/uploads
+    healthcheck:
+      test: ["CMD", "curl", "-f",
+             "http://localhost:8081/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 180s
 
   account-service:
     build:
@@ -97,13 +159,58 @@ services:
       kafka:
         condition: service_healthy
     environment:
+      SPRING_PROFILES_ACTIVE: prod
       DB_URL: jdbc:mysql://db:3306/securebank_accounts
       DB_USERNAME: root
       DB_PASSWORD: ${DB_ROOT_PASSWORD}
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9093
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      EUREKA_INSTANCE_LEASE_RENEWAL_INTERVAL_IN_SECONDS: "5"
     ports:
       - "8082:8082"
+    healthcheck:
+      test: ["CMD", "curl", "-f",
+             "http://localhost:8082/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 180s
+
+  kyc-service:
+    build:
+      context: ./kyc-service
+    container_name: securebank-kyc
+    depends_on:
+      db:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      securebank-api:
+        condition: service_healthy
+      account-service:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:mysql://db:3306/securebank_kyc
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_ROOT_PASSWORD}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9093
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      FILE_UPLOAD_PATH: /app/uploads
+      EUREKA_INSTANCE_LEASE_RENEWAL_INTERVAL_IN_SECONDS: "5"
+    ports:
+      - "8086:8086"
+    volumes:
+      - kyc_uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "curl", "-f",
+             "http://localhost:8086/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 180s
 
   loan-service:
     build:
@@ -119,13 +226,22 @@ services:
       account-service:
         condition: service_healthy
     environment:
+      SPRING_PROFILES_ACTIVE: prod
       DB_URL: jdbc:mysql://db:3306/securebank_loans
       DB_USERNAME: root
       DB_PASSWORD: ${DB_ROOT_PASSWORD}
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9093
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      EUREKA_INSTANCE_LEASE_RENEWAL_INTERVAL_IN_SECONDS: "5"
     ports:
       - "8084:8084"
+    healthcheck:
+      test: ["CMD", "curl", "-f",
+             "http://localhost:8084/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 180s
 
   notification-service:
     build:
@@ -137,26 +253,23 @@ services:
       kafka:
         condition: service_healthy
     environment:
+      SPRING_PROFILES_ACTIVE: prod
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9093
+      EUREKA_URL: http://eureka-server:8761/eureka/
       MAIL_HOST: ${MAIL_HOST}
+      MAIL_PORT: ${MAIL_PORT:-587}
       MAIL_USERNAME: ${MAIL_USERNAME}
       MAIL_PASSWORD: ${MAIL_PASSWORD}
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_INSTANCE_LEASE_RENEWAL_INTERVAL_IN_SECONDS: "5"
     ports:
       - "8083:8083"
-
-  api-gateway:
-    build:
-      context: ./api-gateway
-    container_name: securebank-gateway
-    depends_on:
-      eureka-server:
-        condition: service_healthy
-    environment:
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
-      JWT_SECRET: ${JWT_SECRET}
-    ports:
-      - "8090:8090"
+    healthcheck:
+      test: ["CMD", "curl", "-f",
+             "http://localhost:8083/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
 
   ai-service:
     build:
@@ -165,11 +278,34 @@ services:
     depends_on:
       eureka-server:
         condition: service_healthy
+      account-service:
+        condition: service_healthy
+      loan-service:
+        condition: service_healthy
+      securebank-api:
+        condition: service_healthy
     environment:
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
-      AI_MODEL: ${AI_MODEL:google/gemini-2.5-flash:free}
+      SPRING_PROFILES_ACTIVE: prod
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      # NOTE: this must match whatever key name your .env file actually uses.
+      # Your current .env defines OPENROUTER_API_KEY, not AI_API_KEY — rename
+      # the key in .env to AI_API_KEY (or change this line to
+      # ${OPENROUTER_API_KEY}) or this will start with a blank API key.
+      AI_API_KEY: ${AI_API_KEY}
+      AI_MODEL: ${AI_MODEL:-google/gemini-2.5-flash:free}
+      AI_BASE_URL: ${AI_BASE_URL:-https://openrouter.ai/api}
+      EUREKA_INSTANCE_LEASE_RENEWAL_INTERVAL_IN_SECONDS: "5"
     ports:
       - "8085:8085"
+    healthcheck:
+      test: ["CMD", "curl", "-f",
+             "http://localhost:8085/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
 volumes:
   mysql_data:
+  uploads_data:
+  kyc_uploads:

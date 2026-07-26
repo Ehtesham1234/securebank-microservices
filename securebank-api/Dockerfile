@@ -40,7 +40,7 @@ WORKDIR /app
 # If someone hacks your app, they get "securebank" user access,
 # NOT root access to the entire machine
 RUN addgroup -S securebank && adduser -S securebank -G securebank
-
+RUN apk add --no-cache curl
 # Copy ONLY the compiled JAR from the builder stage
 # The build tools, source code, etc. are NOT included here
 COPY --from=builder /app/target/*.jar app.jar
