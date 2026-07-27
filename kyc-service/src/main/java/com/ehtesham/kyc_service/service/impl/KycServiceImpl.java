@@ -245,25 +245,23 @@ public class KycServiceImpl implements KycService {
         doc.setVerifiedBy(tellerUserId);
         kycRepository.save(doc);
 
-        kycEventPublisher.publishKycRejected(
-                doc.getUserId(), "", request.getReason());
-        // Fetch customer email for rejection notification:
+        // Fetch customer email ONCE — publish ONCE
+        String customerEmail = "";
         try {
             InternalUserResponse customer =
                     userServiceClient.getUserById(doc.getUserId());
-            kycEventPublisher.publishKycRejected(
-                    doc.getUserId(), customer.getEmail(),
-                    request.getReason());
+            customerEmail = customer.getEmail();
         } catch (Exception e) {
-            log.warn("Could not fetch customer email for rejection " +
-                    "notification: {}", e.getMessage());
-            kycEventPublisher.publishKycRejected(
-                    doc.getUserId(), "", request.getReason());
+            log.warn("Could not fetch customer email for " +
+                    "rejection notification: {}", e.getMessage());
         }
+
+        kycEventPublisher.publishKycRejected(
+                doc.getUserId(), customerEmail,
+                request.getReason());
 
         log.info("KYC rejected: kycId={}, userId={}, reason={}",
                 kycId, doc.getUserId(), request.getReason());
-
 
         return mapToResponse(doc);
     }
