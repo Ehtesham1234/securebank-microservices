@@ -81,6 +81,34 @@ public class GlobalExceptionHandler {
                 ));
     }
 
+    // C6 fix: another request with the same idempotency key is still
+    // in flight — tell the caller to retry rather than treat it as a
+    // failure or, worse, silently re-run the operation.
+    @ExceptionHandler(RequestInProgressException.class)
+    public ResponseEntity<ErrorResponse> handleInProgress(
+            RequestInProgressException ex, HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of(
+                        409,
+                        "REQUEST_IN_PROGRESS",
+                        ex.getMessage(),
+                        request.getRequestURI()
+                ));
+    }
+
+    // M5 fix: live status check found the account no longer active.
+    @ExceptionHandler(AccountSuspendedException.class)
+    public ResponseEntity<ErrorResponse> handleSuspended(
+            AccountSuspendedException ex, HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ErrorResponse.of(
+                        403,
+                        "ACCOUNT_SUSPENDED",
+                        ex.getMessage(),
+                        request.getRequestURI()
+                ));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidation(
             MethodArgumentNotValidException ex, HttpServletRequest request) {

@@ -8,6 +8,7 @@ import com.ehtesham.account_service.account.repository.AccountRepository;
 import com.ehtesham.account_service.account.service.impl.AccountServiceImpl;
 import com.ehtesham.account_service.card.dto.CardResponse;
 import com.ehtesham.account_service.card.dto.CreditCardRequest;
+import com.ehtesham.account_service.card.dto.CvvResponse;
 import com.ehtesham.account_service.card.dto.StatementResponse;
 import com.ehtesham.account_service.card.entity.Card;
 import com.ehtesham.account_service.card.entity.CreditCardStatement;
@@ -15,6 +16,7 @@ import com.ehtesham.account_service.card.enums.CardStatus;
 import com.ehtesham.account_service.card.enums.CardType;
 import com.ehtesham.account_service.card.repository.CardRepository;
 import com.ehtesham.account_service.card.repository.CreditCardStatementRepository;
+import com.ehtesham.account_service.card.security.CvvService;
 import com.ehtesham.account_service.card.service.CardService;
 import com.ehtesham.account_service.exception.AccountOperationException;
 import com.ehtesham.account_service.exception.InsufficientFundsException;
@@ -22,17 +24,15 @@ import com.ehtesham.account_service.exception.ResourceNotFoundException;
 import com.ehtesham.account_service.security.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.security.SecureRandom;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
-import java.util.Random;
 import java.util.stream.Collectors;
 
 @Service
@@ -45,23 +45,27 @@ public class CardServiceImpl implements CardService {
             new BigDecimal("0.05");
     private static final int PAYMENT_DUE_DAYS = 15;
 
+    // H2 fix: java.util.Random is a predictable PRNG — not appropriate for
+    // generating card numbers, which are sensitive identifiers.
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
     private final CardRepository cardRepository;
     private final CreditCardStatementRepository statementRepository;
     private final AccountRepository accountRepository;
     private final SecurityUtils securityUtils;
-    private final PasswordEncoder passwordEncoder;
+    private final CvvService cvvService;
 
     public CardServiceImpl(
             CardRepository cardRepository,
             CreditCardStatementRepository statementRepository,
             AccountRepository accountRepository,
-            SecurityUtils securityUtils) {
+            SecurityUtils securityUtils,
+            CvvService cvvService) {
         this.cardRepository = cardRepository;
         this.statementRepository = statementRepository;
         this.accountRepository = accountRepository;
         this.securityUtils = securityUtils;
-        // BCrypt for CVV hashing — no Spring Security UserDetails here
-        this.passwordEncoder = new BCryptPasswordEncoder();
+        this.cvvService = cvvService;
     }
 
     /**
@@ -82,7 +86,6 @@ public class CardServiceImpl implements CardService {
             return mapToResponse(existing.get());
         }
         String cardNumber = generateCardNumber();
-        String cvv = generateCvv();
 
         Card card = new Card();
         card.setCardNumber(cardNumber);
@@ -92,7 +95,6 @@ public class CardServiceImpl implements CardService {
         card.setCardType(CardType.DEBIT_CARD);
         card.setStatus(CardStatus.ACTIVE);
         card.setExpiryDate(LocalDate.now().plusYears(5));
-        card.setCvvHash(passwordEncoder.encode(cvv));
         card.setDailyLimit(DEFAULT_DAILY_LIMIT);
         card.setCardHolderName(cardHolderName);
 
@@ -113,7 +115,6 @@ public class CardServiceImpl implements CardService {
         }
 
         String cardNumber = generateCardNumber();
-        String cvv = generateCvv();
 
         Card card = new Card();
         card.setCardNumber(cardNumber);
@@ -122,7 +123,6 @@ public class CardServiceImpl implements CardService {
         card.setCardType(CardType.CREDIT_CARD);
         card.setStatus(CardStatus.ACTIVE);
         card.setExpiryDate(LocalDate.now().plusYears(3));
-        card.setCvvHash(passwordEncoder.encode(cvv));
         card.setCreditLimit(request.getCreditLimit());
         card.setAvailableCredit(request.getCreditLimit());
         card.setOutstandingBill(BigDecimal.ZERO);
@@ -382,6 +382,32 @@ public class CardServiceImpl implements CardService {
         return mapToResponse(cardRepository.save(card));
     }
 
+    // Follow-up #5 (Option A): derived on demand from the (decrypted)
+    // PAN + expiry — never stored, never logged. card.getCardNumber()
+    // returns plaintext transparently via PanEncryptionConverter; it
+    // never leaves this method.
+    @Override
+    @Transactional(readOnly = true)
+    public CvvResponse revealCvv(Long cardId) {
+        Long userId = securityUtils.getCurrentUserId();
+        Card card = getCardOwnedByUser(cardId, userId);
+
+        String cvv = cvvService.derive(
+                card.getCardNumber(), card.getExpiryDate());
+
+        return CvvResponse.builder().cvv(cvv).build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean verifyCvv(Long cardId, String submittedCvv) {
+        Long userId = securityUtils.getCurrentUserId();
+        Card card = getCardOwnedByUser(cardId, userId);
+
+        return cvvService.verify(
+                card.getCardNumber(), card.getExpiryDate(), submittedCvv);
+    }
+
     // ── Private helpers ───────────────────────────────────────────
 
     private Card getCardOwnedByUser(Long cardId, Long userId) {
@@ -396,11 +422,14 @@ public class CardServiceImpl implements CardService {
         return card;
     }
 
+    // NOTE: this does not compute/append a real Luhn check digit — fine
+    // for an internal simulated bank where these numbers are never run
+    // through a real card network, but don't mistake this for validation
+    // logic if it's ever reused somewhere that matters.
     private String generateCardNumber() {
-        Random random = new Random();
         StringBuilder sb = new StringBuilder("4");
         for (int i = 0; i < 15; i++) {
-            sb.append(random.nextInt(10));
+            sb.append(SECURE_RANDOM.nextInt(10));
         }
         String n = sb.toString();
         return n.substring(0, 4) + " " + n.substring(4, 8)
@@ -411,11 +440,6 @@ public class CardServiceImpl implements CardService {
     private String maskCardNumber(String cardNumber) {
         String d = cardNumber.replace(" ", "");
         return "**** **** **** " + d.substring(12);
-    }
-
-    private String generateCvv() {
-        return String.format("%03d",
-                new Random().nextInt(1000));
     }
 
     private CardResponse mapToResponse(Card card) {

@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 @FeignClient(
         name = "account-service",
+        configuration = IdentityForwardingFeignConfig.class,
         fallback = AccountServiceClientFallback.class)
 public interface AccountServiceClient {
 

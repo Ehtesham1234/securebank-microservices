@@ -14,8 +14,10 @@ public class AccountServiceClientFallback implements AccountServiceClient {
             LoggerFactory.getLogger(AccountServiceClientFallback.class);
 
     @Override
-    public List<AccountSummary> getMyAccounts(Long userId) {
-        log.warn("Circuit breaker: account-service unavailable for userId={}", userId);
-        return List.of();
+    public ApiEnvelope<List<AccountSummary>> getMyAccounts() {
+        log.warn("Circuit breaker: account-service unavailable for getMyAccounts");
+        ApiEnvelope<List<AccountSummary>> empty = new ApiEnvelope<>();
+        empty.setData(List.of());
+        return empty;
     }
 }

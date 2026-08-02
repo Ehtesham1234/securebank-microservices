@@ -35,6 +35,12 @@ public class OtpVerification {
     @Column(nullable = false)
     private boolean used = false;
 
+    // C3 fix: incremented on every wrong guess against this specific OTP
+    // row so it can be invalidated after N failures, independent of its
+    // time-based expiry.
+    @Column(name = "failed_attempts", nullable = false)
+    private int failedAttempts = 0;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

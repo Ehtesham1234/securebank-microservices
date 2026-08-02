@@ -14,8 +14,12 @@ public class LoanServiceClientFallback implements LoanServiceClient {
             LoggerFactory.getLogger(LoanServiceClientFallback.class);
 
     @Override
-    public List<LoanSummary> getMyLoans(Long userId, int page, int size) {
-        log.warn("Circuit breaker: loan-service unavailable for userId={}", userId);
-        return List.of();
+    public ApiEnvelope<PageContent<LoanSummary>> getMyLoans(int page, int size) {
+        log.warn("Circuit breaker: loan-service unavailable for getMyLoans");
+        PageContent<LoanSummary> emptyPage = new PageContent<>();
+        emptyPage.setContent(List.of());
+        ApiEnvelope<PageContent<LoanSummary>> empty = new ApiEnvelope<>();
+        empty.setData(emptyPage);
+        return empty;
     }
 }

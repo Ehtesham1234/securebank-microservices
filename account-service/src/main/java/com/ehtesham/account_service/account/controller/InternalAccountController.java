@@ -8,8 +8,17 @@ import com.ehtesham.account_service.card.service.CardService;
 import com.ehtesham.account_service.exception.ResourceNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+/**
+ * Called service-to-service by kyc-service/loan-service on behalf of a
+ * real authenticated request (a teller verifying KYC, a customer
+ * applying for a loan) — the caller's JWT is forwarded and verified the
+ * same way as any other request (see GatewayAuthFilter). Authorization
+ * for WHO may call each endpoint is enforced below via @PreAuthorize,
+ * same as any other controller.
+ */
 @RestController
 @RequestMapping("/api/v1/internal")
 public class InternalAccountController {
@@ -28,10 +37,12 @@ public class InternalAccountController {
     }
 
     /**
-     * Called by kyc-service after KYC verification.
-     * Creates savings account + debit card atomically.
+     * Called by kyc-service after KYC verification. Acts on a DIFFERENT
+     * user than the caller (the teller creates infrastructure for the
+     * customer) — restricted to staff roles.
      */
     @PostMapping("/accounts/kyc-setup")
+    @PreAuthorize("hasAnyAuthority('ROLE_TELLER','ROLE_ADMIN')")
     public ResponseEntity<AccountResponse> kycSetup(
             @RequestParam Long userId,
             @RequestParam String firstName,
@@ -59,10 +70,13 @@ public class InternalAccountController {
     }
 
     /**
-     * Called by loan-service to validate account ownership
-     * before approving a loan.
+     * Called by loan-service to validate account ownership before
+     * approving a loan. Triggered by the loan applicant's OWN request —
+     * so this allows the caller to check THEIR OWN account, or staff
+     * checking on anyone's behalf.
      */
     @GetMapping("/accounts/{accountId}/validate")
+    @PreAuthorize("hasAnyAuthority('ROLE_TELLER','ROLE_ADMIN') or #userId == authentication.details")
     public ResponseEntity<com.ehtesham.account_service.account.dto.AccountValidationResponse>
     validateAccount(
             @PathVariable Long accountId,

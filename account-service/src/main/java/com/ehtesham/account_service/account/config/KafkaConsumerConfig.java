@@ -40,7 +40,11 @@ public class KafkaConsumerConfig {
                 StringDeserializer.class);
         props.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS,
                 JacksonJsonDeserializer.class);
-        props.put(JacksonJsonDeserializer.TRUSTED_PACKAGES, "*");
+        // H4 fix: scoped to where LoanApprovedEvent actually lives — see
+        // notification-service's KafkaConsumerConfig for the full
+        // reasoning.
+        props.put(JacksonJsonDeserializer.TRUSTED_PACKAGES,
+                LoanApprovedEvent.class.getPackageName());
         props.put(JacksonJsonDeserializer.VALUE_DEFAULT_TYPE,
                 LoanApprovedEvent.class.getName());
         props.put(JacksonJsonDeserializer.USE_TYPE_INFO_HEADERS, false);

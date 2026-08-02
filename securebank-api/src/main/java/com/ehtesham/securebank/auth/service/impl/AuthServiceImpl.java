@@ -5,6 +5,7 @@ import com.ehtesham.securebank.auth.dto.*;
 import com.ehtesham.securebank.auth.entity.RefreshToken;
 import com.ehtesham.securebank.auth.service.AuthService;
 import com.ehtesham.securebank.auth.service.LoginAttemptService;
+import com.ehtesham.securebank.security.util.ClientIpUtils;
 import com.ehtesham.securebank.auth.service.RefreshTokenService;
 import com.ehtesham.securebank.common.enums.Role;
 import com.ehtesham.securebank.common.enums.UserStatus;
@@ -77,27 +78,55 @@ public class AuthServiceImpl implements AuthService {
         User existingUser = userRepository
                 .findByEmail(request.getEmail()).orElse(null);
 
-        if (existingUser != null) {
+        // M7 fix: previously this branch threw EmailAlreadyExistsException
+        // — a response shape distinguishable from every other outcome —
+        // which let anyone confirm whether an email had a verified
+        // SecureBank account just by submitting a registration attempt
+        // against it. Now every path below returns the identical
+        // "check your email" UserResponse shape regardless of whether the
+        // email was new, already registered-but-unverified, or already
+        // verified. The real accountholder gets a security alert instead
+        // of the caller getting a different response.
+        //
+        // M7 residual fix: the response below is built from the
+        // SUBMITTED request fields, not existingUser — returning
+        // existingUser's real firstName/lastName/id/role/userStatus was a
+        // bigger leak than the 409 it replaced (anyone who knew/guessed a
+        // registered email could recover that customer's real name and
+        // internal user ID, unauthenticated, in a normal 200 response).
+        // Echoing back exactly what the caller submitted keeps this
+        // response indistinguishable from a genuine new signup — id is
+        // omitted for the same reason a new signup's real id shouldn't be
+        // guessable either way.
+        if (existingUser != null && existingUser.isEmailVerified()) {
 
-            if (existingUser.isEmailVerified()) {
-                throw new EmailAlreadyExistsException(
-                        "Email already exists. Please login instead.");
-            }
+            notificationPublisher.publishDuplicateRegistrationAlert(
+                    existingUser.getEmail());
+
+            return UserResponse.builder()
+                    .firstName(request.getFirstName())
+                    .lastName(request.getLastName())
+                    .email(request.getEmail())
+                    .role(Role.CUSTOMER)
+                    .userStatus(UserStatus.PENDING_KYC)
+                    .emailVerified(false)
+                    .build();
+        }
+
+        if (existingUser != null) {
 
             String otp = otpService.generateAndSaveOtp(
                     existingUser.getEmail(), OtpPurpose.EMAIL_VERIFICATION);
 
             notificationPublisher.publishOtpEmail(existingUser.getEmail(), otp, "Email Verification");
 
-
             return UserResponse.builder()
-                    .id(existingUser.getId())
-                    .firstName(existingUser.getFirstName())
-                    .lastName(existingUser.getLastName())
-                    .email(existingUser.getEmail())
-                    .role(existingUser.getRole())
-                    .userStatus(existingUser.getUserStatus())
-                    .emailVerified(existingUser.isEmailVerified())
+                    .firstName(request.getFirstName())
+                    .lastName(request.getLastName())
+                    .email(request.getEmail())
+                    .role(Role.CUSTOMER)
+                    .userStatus(UserStatus.PENDING_KYC)
+                    .emailVerified(false)
                     .build();
         }
 
@@ -143,6 +172,29 @@ public class AuthServiceImpl implements AuthService {
         if (!allowed) {
             throw new RateLimitExceededException(
                     "Too many login attempts. Please try again later.");
+        }
+
+        // M2 fix: the email-keyed limit above (and the 5-failure account
+        // lock further down) protect one account from being brute-forced
+        // — but keyed purely on email, with no cost to an attacker who
+        // instead grinds through many DIFFERENT customers' emails from one
+        // machine to lock them all out (a free griefing tool, per the
+        // audit). This second limiter is keyed on source IP instead:
+        // deliberately generous, since a shared office/NAT IP with several
+        // real users failing their own logins is normal — but a single IP
+        // hitting this many login attempts across (implicitly) many
+        // different target accounts is a strong signal of scripted
+        // enumeration, not a person mistyping their password.
+        String ipRateLimitKey = "login-ip:" + ClientIpUtils.getClientIp();
+        boolean withinIpLimit = rateLimiterService.tryConsume(
+                ipRateLimitKey,
+                30,
+                Duration.ofMinutes(15));
+
+        if (!withinIpLimit) {
+            throw new RateLimitExceededException(
+                    "Too many login attempts from this network. " +
+                            "Please try again later.");
         }
 
         // Spring Security handles everything:
@@ -281,6 +333,21 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public void resetPassword(ResetPasswordRequest request) {
 
+        // C3 fix: without this, an attacker who knows (or guesses) an
+        // email could script through all 1,000,000 six-digit OTP
+        // combinations well within the OTP's 10-minute lifetime. Rate
+        // limit is keyed by email — same reasoning as login: this
+        // specifically protects one account regardless of how many IPs
+        // the attempts come from. The per-OTP failed-attempt lockout in
+        // OtpServiceImpl backs this up even within the allowed attempts.
+        String rateLimitKey = "reset-password:" + request.getEmail();
+        boolean allowed = rateLimiterService.tryConsume(
+                rateLimitKey, 5, Duration.ofMinutes(10));
+        if (!allowed) {
+            throw new RateLimitExceededException(
+                    "Too many password reset attempts. Please try again later.");
+        }
+
         // 1. verify user exists
         User user = userRepository
                 .findByEmail(request.getEmail())
@@ -347,6 +414,21 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public void sendEmailVerificationOtp(String email) {
 
+        // C3 residual fix: this is the one OTP-issuing endpoint that was
+        // missed when rate limiting was added elsewhere (login,
+        // resetPassword, verifyEmail all have it). It's public and
+        // unauthenticated, so without this anyone can email-bomb an
+        // arbitrary address, and repeatedly generating fresh OTPs resets
+        // the per-OTP failed-attempt lockout each time — reopening a
+        // slow brute-force path that lockout alone doesn't close.
+        String rateLimitKey = "send-otp:" + email;
+        boolean allowed = rateLimiterService.tryConsume(
+                rateLimitKey, 5, Duration.ofMinutes(10));
+        if (!allowed) {
+            throw new RateLimitExceededException(
+                    "Too many requests. Please try again later.");
+        }
+
         User user = userRepository.findByEmail(email).orElse(null);
 
         if (user == null || user.isEmailVerified()) {
@@ -361,6 +443,17 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public void verifyEmail(String email, String otp) {
+
+        // C3 fix: same brute-force protection as resetPassword — without
+        // it, EMAIL_VERIFICATION OTPs are guessable within their 10-minute
+        // window.
+        String rateLimitKey = "verify-email:" + email;
+        boolean allowed = rateLimiterService.tryConsume(
+                rateLimitKey, 5, Duration.ofMinutes(10));
+        if (!allowed) {
+            throw new RateLimitExceededException(
+                    "Too many verification attempts. Please try again later.");
+        }
 
         otpService.verifyOtp(email, otp, OtpPurpose.EMAIL_VERIFICATION);
 

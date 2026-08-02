@@ -1,10 +1,8 @@
 package com.ehtesham.api_gateway.filter;
 
-import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,46 +13,62 @@ import org.springframework.core.Ordered;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
-import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyFactory;
+import java.security.PublicKey;
+import java.security.spec.X509EncodedKeySpec;
+import java.util.Base64;
 import java.util.List;
 
+/*
+ * Simplified from the original design (extract JWT claims, rebuild
+ * X-User-* headers, HMAC-sign them) to just: verify the token is valid,
+ * then let it pass through UNCHANGED. Every downstream service now
+ * verifies the same JWT itself (using the public key — see
+ * GatewayAuthFilter in each service), so there's nothing left for the
+ * gateway to extract-and-forward. This still verifies here too, purely
+ * so a garbage/expired token gets a fast, clean 401 at the edge instead
+ * of failing one hop later.
+ */
 @Component
 public class JwtForwardingFilter implements GlobalFilter, Ordered {
 
     private static final Logger log =
             LoggerFactory.getLogger(JwtForwardingFilter.class);
 
-    private static final String HEADER_EMAIL = "X-User-Email";
-    private static final String HEADER_ID = "X-User-Id";
-    private static final String HEADER_ROLE = "X-User-Role";
-    private static final String HEADER_STATUS ="X-User-Status";
-    @Value("${jwt.secret}")
-    private String jwtSecret;
+    @Value("${jwt.public-key}")
+    private String publicKeyBase64Pem;
 
-    private SecretKey secretKey;
+    private PublicKey publicKey;
 
     @PostConstruct
     public void init() {
-
-        if (jwtSecret == null ||
-                jwtSecret.isBlank() ||
-                "your-secret-key-here".equals(jwtSecret)) {
-
+        if (publicKeyBase64Pem == null || publicKeyBase64Pem.isBlank()) {
             throw new IllegalStateException(
-                    "JWT secret is not configured. Please configure 'jwt.secret'.");
+                    "jwt.public-key is not configured.");
         }
-
-        secretKey = Keys.hmacShaKeyFor(
-                jwtSecret.getBytes(StandardCharsets.UTF_8));
-
-        log.info("JWT Gateway Filter initialized.");
+        try {
+            String pem = new String(
+                    Base64.getDecoder().decode(publicKeyBase64Pem),
+                    StandardCharsets.UTF_8);
+            String cleaned = pem
+                    .replace("-----BEGIN PUBLIC KEY-----", "")
+                    .replace("-----END PUBLIC KEY-----", "")
+                    .replaceAll("\\s", "");
+            byte[] der = Base64.getDecoder().decode(cleaned);
+            KeyFactory kf = KeyFactory.getInstance("RSA");
+            this.publicKey = kf.generatePublic(new X509EncodedKeySpec(der));
+        } catch (Exception e) {
+            throw new IllegalStateException(
+                    "Failed to load jwt.public-key — check it's a "
+                            + "base64-encoded X.509 PEM public key.", e);
+        }
+        log.info("JWT Gateway Filter initialized (RS256, verify-only).");
     }
 
     /**
@@ -71,7 +85,14 @@ public class JwtForwardingFilter implements GlobalFilter, Ordered {
             "/api/v1/auth/email/verify",
             "/actuator/health",
             "/swagger-ui",
-            "/v3/api-docs"
+            "/v3/api-docs",
+            // Browsers can't set an Authorization header on a WebSocket
+            // handshake, so this one authenticates itself downstream via a
+            // ?token=<jwt> query param instead (see
+            // WsAuthHandshakeInterceptor in securebank-api). Letting it
+            // through here just means "no Authorization header required at
+            // the gateway" — it is NOT unauthenticated end-to-end.
+            "/ws"
     );
 
     @Override
@@ -82,7 +103,6 @@ public class JwtForwardingFilter implements GlobalFilter, Ordered {
                 .getURI()
                 .getPath();
 
-        // Skip authentication for public endpoints
         boolean isPublic =
                 PUBLIC_PATHS.stream().anyMatch(path::startsWith);
 
@@ -95,84 +115,33 @@ public class JwtForwardingFilter implements GlobalFilter, Ordered {
                 .getFirst(HttpHeaders.AUTHORIZATION);
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-
-            return unauthorized(
-                    exchange,
-                    "Missing or invalid Authorization header");
+            return unauthorized(exchange, "Missing or invalid Authorization header");
         }
 
         String token = authHeader.substring(7);
 
         try {
-
-            Claims claims = Jwts.parser()
-                    .verifyWith(secretKey)
+            Jwts.parser()
+                    .verifyWith(publicKey)
                     .build()
-                    .parseSignedClaims(token)
-                    .getPayload();
+                    .parseSignedClaims(token);
 
-            String email = claims.getSubject();
-            String userId = claims.get("userId", String.class);
-            String role = claims.get("role", String.class);
-            String userStatus = claims.get("userStatus", String.class);
-            ServerHttpRequest modifiedRequest =
-                    exchange.getRequest()
-                            .mutate()
-                            .headers(headers -> {
-
-                                headers.set(
-                                        HEADER_EMAIL,
-                                        email != null ? email : "");
-
-                                headers.set(
-                                        HEADER_ID,
-                                        userId != null ? userId : "");
-
-                                headers.set(
-                                        HEADER_ROLE,
-                                        role != null ? role : "");
-
-                                headers.set(
-                                        HEADER_STATUS,
-                                        userStatus != null ? userStatus : "");
-
-                            })
-                            .build();
-
-            log.debug(
-                    "JWT validated successfully. user={}, role={}, path={}",
-                    email,
-                    role,
-                    path);
-
-            return chain.filter(
-                    exchange.mutate()
-                            .request(modifiedRequest)
-                            .build());
+            // Valid — forward the request exactly as received.
+            // Authorization header passes through unchanged; every
+            // downstream service verifies it again independently.
+            return chain.filter(exchange);
 
         } catch (ExpiredJwtException e) {
-
             log.warn("Expired JWT for path {}", path);
-
-            return unauthorized(
-                    exchange,
-                    "Token has expired");
+            return unauthorized(exchange, "Token has expired");
 
         } catch (JwtException e) {
-
             log.warn("Invalid JWT for path {}", path);
-
-            return unauthorized(
-                    exchange,
-                    "Invalid token");
+            return unauthorized(exchange, "Invalid token");
 
         } catch (Exception e) {
-
             log.error("JWT processing failed", e);
-
-            return unauthorized(
-                    exchange,
-                    "Authentication failed");
+            return unauthorized(exchange, "Authentication failed");
         }
     }
 
@@ -180,12 +149,8 @@ public class JwtForwardingFilter implements GlobalFilter, Ordered {
                                     String message) {
 
         ServerHttpResponse response = exchange.getResponse();
-
         response.setStatusCode(HttpStatus.UNAUTHORIZED);
-
-        response.getHeaders().set(
-                HttpHeaders.CONTENT_TYPE,
-                "application/json");
+        response.getHeaders().set(HttpHeaders.CONTENT_TYPE, "application/json");
 
         String body = String.format("""
                 {
@@ -205,8 +170,6 @@ public class JwtForwardingFilter implements GlobalFilter, Ordered {
 
     @Override
     public int getOrder() {
-
-        // Run before routing filters
         return -1;
     }
 }

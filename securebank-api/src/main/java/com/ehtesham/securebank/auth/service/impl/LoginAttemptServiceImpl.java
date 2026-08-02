@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+
 @Service
 public class LoginAttemptServiceImpl implements LoginAttemptService {
     private static final int MAX_ATTEMPTS = 5;

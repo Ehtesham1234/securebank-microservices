@@ -40,7 +40,12 @@ public class KafkaConsumerConfig {
                 StringDeserializer.class);
         props.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS,
                 JacksonJsonDeserializer.class);
-        props.put(JacksonJsonDeserializer.TRUSTED_PACKAGES, "*");
+        // H4 fix: scoped to where AccountCreditedEvent actually lives —
+        // see notification-service's KafkaConsumerConfig for the full
+        // reasoning (USE_TYPE_INFO_HEADERS=false makes "*" low-risk today,
+        // but only as long as nobody changes that later).
+        props.put(JacksonJsonDeserializer.TRUSTED_PACKAGES,
+                AccountCreditedEvent.class.getPackageName());
         props.put(JacksonJsonDeserializer.VALUE_DEFAULT_TYPE,
                 AccountCreditedEvent.class.getName());
         props.put(JacksonJsonDeserializer.USE_TYPE_INFO_HEADERS, false);

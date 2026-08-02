@@ -14,9 +14,13 @@ public class TransactionServiceClientFallback implements TransactionServiceClien
             LoggerFactory.getLogger(TransactionServiceClientFallback.class);
 
     @Override
-    public List<TransactionSummary> getTransactionHistory(
-            Long accountId, Long userId, int page, int size) {
-        log.warn("Circuit breaker: securebank-api unavailable for accountId={}", accountId);
-        return List.of();
+    public ApiEnvelope<PageContent<TransactionSummary>> getTransactionHistory(
+            Long accountId, int page, int size) {
+        log.warn("Circuit breaker: account-service unavailable for accountId={}", accountId);
+        PageContent<TransactionSummary> emptyPage = new PageContent<>();
+        emptyPage.setContent(List.of());
+        ApiEnvelope<PageContent<TransactionSummary>> empty = new ApiEnvelope<>();
+        empty.setData(emptyPage);
+        return empty;
     }
 }

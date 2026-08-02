@@ -4,6 +4,7 @@ package com.ehtesham.account_service.card.entity;
 import com.ehtesham.account_service.account.entity.Account;
 import com.ehtesham.account_service.card.enums.CardStatus;
 import com.ehtesham.account_service.card.enums.CardType;
+import com.ehtesham.account_service.card.security.PanEncryptionConverter;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -24,7 +25,10 @@ public class Card {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "card_number", nullable = false, unique = true)
+    // C5 fix: the PAN is encrypted at rest (AES-256-GCM) — never stored or
+    // logged in plaintext. maskedNumber below is what's safe to display.
+    @Convert(converter = PanEncryptionConverter.class)
+    @Column(name = "card_number", nullable = false, length = 255)
     private String cardNumber;
 
     @Column(name = "masked_number", nullable = false)
@@ -48,8 +52,11 @@ public class Card {
     @Column(name = "expiry_date", nullable = false)
     private LocalDate expiryDate;
 
-    @Column(name = "cvv_hash", nullable = false)
-    private String cvvHash;
+    // C5 fix: cvv_hash removed entirely. A CVV must never be retained
+    // after issuance/authorization in ANY form — hashed included — per
+    // PCI-DSS 3.2. It's generated, shown to the user once at issuance, and
+    // discarded; nothing here re-validates it later, so there was nothing
+    // depending on persisting it.
 
     // DEBIT_CARD — daily spending limit
     @Column(name = "daily_limit", precision = 19, scale = 4)

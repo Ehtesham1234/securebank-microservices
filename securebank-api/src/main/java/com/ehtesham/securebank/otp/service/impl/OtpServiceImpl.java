@@ -8,13 +8,24 @@ import com.ehtesham.securebank.otp.service.OtpService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
 import java.time.Instant;
-import java.util.Random;
 
 @Service
 public class OtpServiceImpl implements OtpService {
 
     private static final long OTP_EXPIRY_MINUTES = 10;
+
+    // C3 fix: independent of the 10-minute time-based expiry, an OTP is
+    // locked out after this many wrong guesses so the full 6-digit space
+    // (1,000,000 combinations) can't be brute-forced within its lifetime.
+    private static final int MAX_FAILED_ATTEMPTS = 5;
+
+    // C3 hardening: java.util.Random is a predictable PRNG (its internal
+    // state can be recovered from a handful of outputs) — not appropriate
+    // for a value that gates password resets and account takeover.
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
     private final OtpVerificationRepository otpRepository;
 
     public OtpServiceImpl(OtpVerificationRepository otpRepository) {
@@ -27,7 +38,7 @@ public class OtpServiceImpl implements OtpService {
 
         otpRepository.invalidateActiveOtps(email, purpose);
 
-        String otp = String.format("%06d", new Random().nextInt(999999));
+        String otp = String.format("%06d", SECURE_RANDOM.nextInt(1_000_000));
 
         OtpVerification entity = new OtpVerification();
         entity.setEmail(email);
@@ -35,6 +46,7 @@ public class OtpServiceImpl implements OtpService {
         entity.setPurpose(purpose);
         entity.setExpiryDate(Instant.now().plusSeconds(OTP_EXPIRY_MINUTES * 60));
         entity.setUsed(false);
+        entity.setFailedAttempts(0);
 
         otpRepository.save(entity);
 
@@ -46,12 +58,28 @@ public class OtpServiceImpl implements OtpService {
     public void verifyOtp(String email, String otp, OtpPurpose purpose) {
 
         OtpVerification entity = otpRepository
-                .findByEmailAndOtpAndPurposeAndUsedFalse(email, otp, purpose)
+                .findFirstByEmailAndPurposeAndUsedFalseOrderByCreatedAtDesc(email, purpose)
                 .orElseThrow(() ->
                         new InvalidOtpException("Invalid or expired OTP"));
 
         if (entity.getExpiryDate().isBefore(Instant.now())) {
             throw new InvalidOtpException("OTP has expired");
+        }
+
+        // C3 fix: lock out this OTP once too many wrong guesses have been
+        // made against it, rather than leaving it guessable for the rest
+        // of its 10-minute window.
+        if (entity.getFailedAttempts() >= MAX_FAILED_ATTEMPTS) {
+            entity.setUsed(true);
+            otpRepository.save(entity);
+            throw new InvalidOtpException(
+                    "Too many incorrect attempts. Please request a new code.");
+        }
+
+        if (!entity.getOtp().equals(otp)) {
+            entity.setFailedAttempts(entity.getFailedAttempts() + 1);
+            otpRepository.save(entity);
+            throw new InvalidOtpException("Invalid or expired OTP");
         }
 
         entity.setUsed(true);

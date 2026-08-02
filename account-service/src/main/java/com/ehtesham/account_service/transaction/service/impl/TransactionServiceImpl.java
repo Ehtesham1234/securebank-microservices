@@ -4,7 +4,6 @@ package com.ehtesham.account_service.transaction.service.impl;
 import com.ehtesham.account_service.account.entity.Account;
 import com.ehtesham.account_service.account.repository.AccountRepository;
 import com.ehtesham.account_service.account.service.AccountService;
-import com.ehtesham.account_service.exception.AccountOperationException;
 import com.ehtesham.account_service.exception.InsufficientFundsException;
 import com.ehtesham.account_service.exception.ResourceNotFoundException;
 import com.ehtesham.account_service.exception.TransactionAlreadyReversedException;
@@ -16,7 +15,6 @@ import com.ehtesham.account_service.transaction.dto.WithdrawRequest;
 import com.ehtesham.account_service.transaction.entity.Transaction;
 import com.ehtesham.account_service.transaction.enums.TransactionStatus;
 import com.ehtesham.account_service.transaction.enums.TransactionType;
-import com.ehtesham.account_service.transaction.publisher.TransactionEventPublisher;
 import com.ehtesham.account_service.transaction.repository.TransactionRepository;
 import com.ehtesham.account_service.transaction.service.TransactionService;
 import org.springframework.data.domain.Page;
@@ -25,8 +23,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.util.UUID;
 
+/*
+ * Follow-up fix #1: doDeposit/doWithdraw/doTransfer moved out to
+ * MoneyMovementExecutor — see that class's javadoc for why. This class
+ * now delegates to it via a genuine bean-to-bean call (goes through
+ * Spring's proxy, unlike the old this.doDeposit(...) self-invocation),
+ * and keeps the reversal flow + read-only queries, which were already
+ * correct (reverseTransaction() is a real proxy entry point, so its
+ * @Transactional already covered everything nested inside it).
+ */
 @Service
 public class TransactionServiceImpl implements TransactionService {
 
@@ -34,22 +40,22 @@ public class TransactionServiceImpl implements TransactionService {
     private final AccountRepository accountRepository;
     private final AccountService accountService;
     private final IdempotencyHelper idempotencyHelper;
-    private final TransactionEventPublisher eventPublisher;
     private final SecurityUtils securityUtils;
+    private final MoneyMovementExecutor moneyMovementExecutor;
 
     public TransactionServiceImpl(
             TransactionRepository transactionRepository,
             AccountRepository accountRepository,
             AccountService accountService,
             IdempotencyHelper idempotencyHelper,
-            TransactionEventPublisher eventPublisher,
-            SecurityUtils securityUtils) {
+            SecurityUtils securityUtils,
+            MoneyMovementExecutor moneyMovementExecutor) {
         this.transactionRepository = transactionRepository;
         this.accountRepository = accountRepository;
         this.accountService = accountService;
         this.idempotencyHelper = idempotencyHelper;
-        this.eventPublisher = eventPublisher;
         this.securityUtils = securityUtils;
+        this.moneyMovementExecutor = moneyMovementExecutor;
     }
 
     @Override
@@ -62,44 +68,13 @@ public class TransactionServiceImpl implements TransactionService {
         return idempotencyHelper.executeIdempotently(
                 idempotencyKey, userId, "DEPOSIT",
                 TransactionResponse.class,
-                () -> doDeposit(accountId, request, userId));
-    }
-
-    @Transactional
-    protected TransactionResponse doDeposit(
-            Long accountId, DepositRequest request, Long userId) {
-
-        Account account = accountService
-                .getOwnedAccount(accountId, userId);
-        validateAccountActive(account);
-
-        BigDecimal newBalance = account.getBalance()
-                .add(request.getAmount());
-        account.setBalance(newBalance);
-        accountRepository.save(account);
-
-        Transaction transaction = new Transaction();
-        transaction.setTransactionRef(generateTransactionRef());
-        transaction.setAccount(account);
-        transaction.setType(TransactionType.DEPOSIT);
-        transaction.setAmount(request.getAmount());
-        transaction.setBalanceAfter(newBalance);
-        transaction.setStatus(TransactionStatus.SUCCESS);
-        transaction.setDescription(request.getDescription());
-
-        Transaction saved = transactionRepository.save(transaction);
-
-        // Publish to Kafka → securebank-api → WebSocket
-        eventPublisher.publishTransactionCompleted(
-                userId,
-                account.getAccountNumber(),
-                newBalance,
-                request.getAmount(),
-                TransactionType.DEPOSIT,
-                saved.getTransactionRef(),
-                request.getDescription());
-
-        return mapToResponse(saved);
+                // Follow-up fix #1: genuine bean-to-bean call — goes
+                // through moneyMovementExecutor's proxy, so its
+                // @Transactional actually applies. The old version called
+                // this.doDeposit(...) directly, which bypassed the proxy
+                // entirely.
+                () -> moneyMovementExecutor.doDeposit(
+                        accountId, request, userId));
     }
 
     @Override
@@ -112,49 +87,8 @@ public class TransactionServiceImpl implements TransactionService {
         return idempotencyHelper.executeIdempotently(
                 idempotencyKey, userId, "WITHDRAW",
                 TransactionResponse.class,
-                () -> doWithdraw(accountId, request, userId));
-    }
-
-    @Transactional
-    protected TransactionResponse doWithdraw(
-            Long accountId, WithdrawRequest request, Long userId) {
-
-        Account account = accountService
-                .getOwnedAccount(accountId, userId);
-        validateAccountActive(account);
-
-        if (account.getBalance()
-                .compareTo(request.getAmount()) < 0) {
-            throw new InsufficientFundsException(
-                    "Insufficient balance for this withdrawal");
-        }
-
-        BigDecimal newBalance = account.getBalance()
-                .subtract(request.getAmount());
-        account.setBalance(newBalance);
-        accountRepository.save(account);
-
-        Transaction transaction = new Transaction();
-        transaction.setTransactionRef(generateTransactionRef());
-        transaction.setAccount(account);
-        transaction.setType(TransactionType.WITHDRAW);
-        transaction.setAmount(request.getAmount());
-        transaction.setBalanceAfter(newBalance);
-        transaction.setStatus(TransactionStatus.SUCCESS);
-        transaction.setDescription(request.getDescription());
-
-        Transaction saved = transactionRepository.save(transaction);
-
-        eventPublisher.publishTransactionCompleted(
-                userId,
-                account.getAccountNumber(),
-                newBalance,
-                request.getAmount(),
-                TransactionType.WITHDRAW,
-                saved.getTransactionRef(),
-                request.getDescription());
-
-        return mapToResponse(saved);
+                () -> moneyMovementExecutor.doWithdraw(
+                        accountId, request, userId));
     }
 
     @Override
@@ -166,105 +100,7 @@ public class TransactionServiceImpl implements TransactionService {
         return idempotencyHelper.executeIdempotently(
                 idempotencyKey, userId, "TRANSFER",
                 TransactionResponse.class,
-                () -> doTransfer(request, userId));
-    }
-
-    @Transactional
-    protected TransactionResponse doTransfer(
-            TransferRequest request, Long userId) {
-
-        if (request.getFromAccountNumber()
-                .equals(request.getToAccountNumber())) {
-            throw new AccountOperationException(
-                    "Cannot transfer to the same account");
-        }
-
-        Account fromAccount = accountRepository
-                .findByAccountNumber(
-                        request.getFromAccountNumber())
-                .orElseThrow(() ->
-                        new ResourceNotFoundException(
-                                "Source account not found"));
-
-        // Verify ownership — userId must match account's userId
-        if (!fromAccount.getUserId().equals(userId)) {
-            throw new ResourceNotFoundException(
-                    "Source account not found");
-        }
-
-        Account toAccount = accountRepository
-                .findByAccountNumber(
-                        request.getToAccountNumber())
-                .orElseThrow(() ->
-                        new ResourceNotFoundException(
-                                "Destination account not found"));
-
-        validateAccountActive(fromAccount);
-        validateAccountActive(toAccount);
-
-        if (fromAccount.getBalance()
-                .compareTo(request.getAmount()) < 0) {
-            throw new InsufficientFundsException(
-                    "Insufficient balance for this transfer");
-        }
-
-        BigDecimal fromNewBalance = fromAccount.getBalance()
-                .subtract(request.getAmount());
-        BigDecimal toNewBalance = toAccount.getBalance()
-                .add(request.getAmount());
-
-        fromAccount.setBalance(fromNewBalance);
-        toAccount.setBalance(toNewBalance);
-        accountRepository.save(fromAccount);
-        accountRepository.save(toAccount);
-
-        String sharedRef = generateTransactionRef();
-
-        Transaction outgoing = new Transaction();
-        outgoing.setTransactionRef(sharedRef + "-OUT");
-        outgoing.setAccount(fromAccount);
-        outgoing.setType(TransactionType.TRANSFER_OUT);
-        outgoing.setAmount(request.getAmount());
-        outgoing.setBalanceAfter(fromNewBalance);
-        outgoing.setStatus(TransactionStatus.SUCCESS);
-        outgoing.setDescription(request.getDescription());
-        outgoing.setRelatedAccount(toAccount);
-        Transaction savedOutgoing =
-                transactionRepository.save(outgoing);
-
-        Transaction incoming = new Transaction();
-        incoming.setTransactionRef(sharedRef + "-IN");
-        incoming.setAccount(toAccount);
-        incoming.setType(TransactionType.TRANSFER_IN);
-        incoming.setAmount(request.getAmount());
-        incoming.setBalanceAfter(toNewBalance);
-        incoming.setStatus(TransactionStatus.SUCCESS);
-        incoming.setDescription(request.getDescription());
-        incoming.setRelatedAccount(fromAccount);
-        transactionRepository.save(incoming);
-
-        // Push to SENDER
-        eventPublisher.publishTransactionCompleted(
-                userId,
-                fromAccount.getAccountNumber(),
-                fromNewBalance,
-                request.getAmount(),
-                TransactionType.TRANSFER_OUT,
-                sharedRef + "-OUT",
-                request.getDescription());
-
-        // Push to RECEIVER — use toAccount.getUserId()
-        // (plain Long field on Account entity, no lazy load)
-        eventPublisher.publishTransactionCompleted(
-                toAccount.getUserId(),
-                toAccount.getAccountNumber(),
-                toNewBalance,
-                request.getAmount(),
-                TransactionType.TRANSFER_IN,
-                sharedRef + "-IN",
-                request.getDescription());
-
-        return mapToResponse(savedOutgoing);
+                () -> moneyMovementExecutor.doTransfer(request, userId));
     }
 
     @Override
@@ -294,7 +130,7 @@ public class TransactionServiceImpl implements TransactionService {
             Long transactionId) {
 
         Transaction original = transactionRepository
-                .findById(transactionId)
+                .findByIdForUpdate(transactionId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException(
                                 "Transaction not found"));
@@ -321,7 +157,7 @@ public class TransactionServiceImpl implements TransactionService {
                 : original.getTransactionRef().replace("-IN", "-OUT");
 
         Transaction paired = transactionRepository
-                .findByTransactionRef(pairedRef)
+                .findByTransactionRefForUpdate(pairedRef)
                 .orElseThrow(() ->
                         new ResourceNotFoundException(
                                 "Paired transaction not found: "
@@ -388,31 +224,6 @@ public class TransactionServiceImpl implements TransactionService {
     private TransactionResponse reverseSingleTransaction(
             Transaction original) {
         return mapToResponse(doSingleReversal(original));
-    }
-
-    private void validateAccountActive(Account account) {
-        switch (account.getAccountStatus()) {
-            case FROZEN -> throw new AccountOperationException(
-                    "This account is frozen. Contact support.");
-            case CLOSED -> throw new AccountOperationException(
-                    "This account has been closed.");
-            case DORMANT -> throw new AccountOperationException(
-                    "This account is dormant.");
-            default -> { /* ACTIVE — allow */ }
-        }
-    }
-
-    private String generateTransactionRef() {
-        String ref;
-        do {
-            ref = "TXN" + UUID.randomUUID()
-                    .toString()
-                    .replace("-", "")
-                    .substring(0, 12)
-                    .toUpperCase();
-        } while (transactionRepository
-                .existsByTransactionRef(ref));
-        return ref;
     }
 
     private TransactionResponse mapToResponse(

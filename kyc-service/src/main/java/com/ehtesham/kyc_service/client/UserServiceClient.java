@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 
 @FeignClient(
         name = "securebank-api",
+        configuration = IdentityForwardingFeignConfig.class,
         fallback = UserServiceClientFallback.class)
 public interface UserServiceClient {
 

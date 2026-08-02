@@ -16,6 +16,12 @@ public interface OtpVerificationRepository
     Optional<OtpVerification> findByEmailAndOtpAndPurposeAndUsedFalse(
             String email, String otp, OtpPurpose purpose);
 
+    // C3 fix: needed to look up the currently-active OTP row (regardless
+    // of the guessed value) so failed attempts can be tracked and the row
+    // locked out after too many wrong guesses.
+    Optional<OtpVerification> findFirstByEmailAndPurposeAndUsedFalseOrderByCreatedAtDesc(
+            String email, OtpPurpose purpose);
+
     @Modifying
     @Query("UPDATE OtpVerification o SET o.used = true " +
             "WHERE o.email = :email AND o.purpose = :purpose " +

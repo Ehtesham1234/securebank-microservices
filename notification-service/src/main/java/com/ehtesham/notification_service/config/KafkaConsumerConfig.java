@@ -43,10 +43,15 @@ public class KafkaConsumerConfig {
         props.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS,
                 JacksonJsonDeserializer.class);
 
-        // Trust ALL packages — critical for cross-service
-        // deserialization where producer and consumer are
-        // in different JVMs with different package names
-        props.put(JacksonJsonDeserializer.TRUSTED_PACKAGES, "*");
+        // H4 fix: USE_TYPE_INFO_HEADERS is false below, so today this
+        // deserializer always targets NotificationEvent regardless of any
+        // type header — but TRUSTED_PACKAGES="*" would silently become a
+        // deserialization gadget-chain risk the moment someone flips that
+        // flag (or adds a second listener that does) without revisiting
+        // this line. Scoping it to where NotificationEvent actually lives
+        // costs nothing today and removes that risk outright.
+        props.put(JacksonJsonDeserializer.TRUSTED_PACKAGES,
+                NotificationEvent.class.getPackageName());
         props.put(JacksonJsonDeserializer.VALUE_DEFAULT_TYPE,
                 NotificationEvent.class.getName());
         props.put(JacksonJsonDeserializer.USE_TYPE_INFO_HEADERS, false);

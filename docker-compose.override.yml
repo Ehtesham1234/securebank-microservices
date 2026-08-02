@@ -1,0 +1,61 @@
+# LOCAL DEV ONLY — DO NOT DEPLOY WITH THIS FILE PRESENT.
+#
+# docker-compose-microservices.yml intentionally stops publishing ports for
+# every backend service except api-gateway (see C1 in the security audit —
+# publishing them let anyone who could reach the host skip the gateway
+# entirely and forge X-User-Id/X-User-Role headers).
+#
+# When you need to hit one service directly during development — Postman,
+# curl, a debugger — uncomment only the port(s) you're actively testing
+# below, run:
+#
+#   docker compose -f docker-compose-microservices.yml -f docker-compose.override.yml up
+#
+# (Compose merges override files with the base file automatically when
+# they sit next to each other and you just run `docker compose up` from
+# this directory — you don't have to pass -f explicitly for that case,
+# Compose picks up docker-compose.override.yml by convention.)
+#
+# Two things worth knowing:
+#  1. The app-layer fix (gateway HMAC signature + internal API key) means
+#     that even with a port open here, hitting a service directly with
+#     hand-typed X-User-Id/X-User-Role headers will now be REJECTED — you'd
+#     need a real X-Internal-Signature, which only the gateway can produce.
+#     For most local testing that's exactly what you want: go through the
+#     gateway (http://localhost:8090) instead of opening these ports at all.
+#  2. If you genuinely need to bypass the gateway (e.g. testing
+#     account-service in total isolation), it's usually easier and safer to
+#     stay off the host network entirely:
+#       docker compose exec account-service sh -c "curl localhost:8082/actuator/health"
+#     or run a throwaway client on the same Compose network:
+#       docker run --rm --network securebank_default curlimages/curl \
+#         curl http://account-service:8082/actuator/health
+#     Neither of those needs any "ports:" entry, here or anywhere else.
+#
+# Uncomment only what you need, and remove this file (or don't pass it)
+# before anything resembling a real deploy.
+
+services:
+  account-service:
+    ports:
+      - "8082:8082"
+
+  kyc-service:
+    ports:
+      - "8086:8086"
+
+  loan-service:
+    ports:
+      - "8084:8084"
+
+  ai-service:
+    ports:
+      - "8085:8085"
+
+  notification-service:
+    ports:
+      - "8083:8083"
+
+  securebank-api:
+    ports:
+      - "8081:8081"

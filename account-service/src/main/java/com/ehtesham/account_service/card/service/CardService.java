@@ -3,6 +3,7 @@ package com.ehtesham.account_service.card.service;
 import com.ehtesham.account_service.account.entity.Account;
 import com.ehtesham.account_service.card.dto.CardResponse;
 import com.ehtesham.account_service.card.dto.CreditCardRequest;
+import com.ehtesham.account_service.card.dto.CvvResponse;
 import com.ehtesham.account_service.card.dto.StatementResponse;
 
 import java.math.BigDecimal;
@@ -26,6 +27,14 @@ public interface CardService {
     List<StatementResponse> getStatements(Long cardId);
     CardResponse spend(Long cardId, BigDecimal amount,
                        String description);
+
+    // Follow-up #5 (Option A): CVV is derived on demand, never stored.
+    // revealCvv is for the cardholder viewing their own card (the same
+    // trust level as viewing the card itself); verifyCvv is for a future
+    // payment/checkout flow to confirm a submitted CVV without ever
+    // exposing the real value on a mismatch.
+    CvvResponse revealCvv(Long cardId);
+    boolean verifyCvv(Long cardId, String submittedCvv);
 
     // Scheduler job — no user context needed
     void generateMonthlyStatements();

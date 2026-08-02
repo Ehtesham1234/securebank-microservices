@@ -2,7 +2,10 @@ package com.ehtesham.account_service.card.controller;
 
 import com.ehtesham.account_service.card.dto.CardResponse;
 import com.ehtesham.account_service.card.dto.CreditCardRequest;
+import com.ehtesham.account_service.card.dto.CvvResponse;
 import com.ehtesham.account_service.card.dto.StatementResponse;
+import com.ehtesham.account_service.card.dto.VerifyCvvRequest;
+import com.ehtesham.account_service.card.dto.VerifyCvvResponse;
 import com.ehtesham.account_service.card.service.CardService;
 import com.ehtesham.account_service.common.response.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -85,6 +88,34 @@ public class CardController {
         return ResponseEntity.ok(ApiResponse.success(
                 "Card spend recorded",
                 cardService.spend(cardId, amount, description)
+        ));
+    }
+
+    // Follow-up #5 (Option A): CVV is derived on demand, never stored —
+    // see CvvService. Self-service only: both endpoints require the
+    // caller to own the card (same as every other /cards/{cardId}/**
+    // endpoint above). A future third-party/merchant "pay with card"
+    // flow (PAN + CVV only, no cardholder session) would be a different
+    // trust model entirely and isn't what these expose.
+    @GetMapping("/{cardId}/cvv")
+    @PreAuthorize("hasAuthority('ROLE_CUSTOMER')")
+    public ResponseEntity<ApiResponse<CvvResponse>> revealCvv(
+            @PathVariable Long cardId) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "CVV retrieved",
+                cardService.revealCvv(cardId)
+        ));
+    }
+
+    @PostMapping("/{cardId}/verify-cvv")
+    @PreAuthorize("hasAuthority('ROLE_CUSTOMER')")
+    public ResponseEntity<ApiResponse<VerifyCvvResponse>> verifyCvv(
+            @PathVariable Long cardId,
+            @Valid @RequestBody VerifyCvvRequest request) {
+        boolean valid = cardService.verifyCvv(cardId, request.getCvv());
+        return ResponseEntity.ok(ApiResponse.success(
+                valid ? "CVV verified" : "CVV does not match",
+                VerifyCvvResponse.builder().valid(valid).build()
         ));
     }
 

@@ -1,5 +1,6 @@
 package com.ehtesham.account_service.transaction.dto;
 
+import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -22,6 +23,7 @@ public class TransferRequest {
 
     @NotNull(message = "Amount is required")
     @DecimalMin(value = "0.01", message = "Amount must be positive")
+    @DecimalMax(value = "1000000.00", message = "Amount exceeds the maximum allowed per transfer (₹10,00,000)")
     private BigDecimal amount;
 
     private String description;

@@ -24,6 +24,30 @@ public class NotificationEventPublisher {
         this.notificationKafkaTemplate = notificationKafkaTemplate;
     }
 
+    // M7 fix: sent instead of an OTP when someone attempts to register
+    // using an email that's already verified — tells the real
+    // accountholder without confirming anything back to the caller who
+    // submitted the registration (that response is identical regardless
+    // of whether the email was new, already registered, or already
+    // verified — see AuthServiceImpl.register()).
+    @Async
+    public void publishDuplicateRegistrationAlert(String email) {
+        publish(NotificationEvent.builder()
+                .eventType("DUPLICATE_REGISTRATION_ATTEMPT")
+                .recipientEmail(email)
+                .subject("SecureBank - Registration Attempt On Your Account")
+                .body("Someone just tried to register a new SecureBank "
+                        + "account using this email address, which "
+                        + "already has a verified account.\n\n"
+                        + "If this was you, you can simply log in — "
+                        + "there's nothing else to do.\n\n"
+                        + "If this wasn't you, your account is still "
+                        + "safe; no changes were made. Consider updating "
+                        + "your password if you're concerned.\n\n"
+                        + "SecureBank Security Team")
+                .build());
+    }
+
     @Async
     public void publishOtpEmail(String email, String otp,
                                 String purposeLabel) {

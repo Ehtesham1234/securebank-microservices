@@ -57,17 +57,22 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
                                 "/actuator/health",
-                                "/ws/**",
-                                // Internal — called by other services
-                                // not exposed via gateway
-                                "/api/v1/internal/**"
+                                "/ws/**"
                         ).permitAll()
                         // Admin only
                         .requestMatchers("/api/v1/admin/**")
                         .hasAuthority("ROLE_ADMIN")
-                        // Everything else — authenticated
-                        // Fine-grained control via @PreAuthorize
-                        // on method level
+                        // "/api/v1/internal/**" is NOT permitAll anymore —
+                        // it requires a valid JWT like everything else
+                        // (the caller's own, forwarded by whichever
+                        // service is calling on their behalf). WHO may
+                        // call each specific internal endpoint is then
+                        // enforced via @PreAuthorize on the controller
+                        // methods themselves (see InternalUserController,
+                        // and account-service's InternalAccountController).
+                        //
+                        // Everything else — authenticated, fine-grained
+                        // control via @PreAuthorize at the method level.
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(s -> s

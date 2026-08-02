@@ -301,8 +301,16 @@ securebank/
 ├── init-db.sql
 ├── .env.example
 └── .github/
-    └── workflows/
-        └── ci.yml
+   └── workflows/
+       ├── securebank-api-ci.yml
+       ├── account-service-ci.yml
+       ├── kyc-service-ci.yml
+       ├── loan-service-ci.yml
+       ├── notification-service-ci.yml
+       ├── eureka-server-ci.yml
+       ├── api-gateway-ci.yml
+       └── ai-service-ci.yml
+
 ```
 
 ---
@@ -451,7 +459,14 @@ This starts:
 
 ---
 
-# 🔮 Future Improvements
+## 🔮 Future Improvements
+- Redis-backed distributed session management
+- Per-user JWT blocklist for immediate token revocation
+- JDBC-backed Spring AI chat memory (persist across restarts)
+- Rate limiting at gateway level (Redis token bucket)
+- Distributed tracing with Micrometer + Zipkin
+- Angular/React frontend
+- Kubernetes deployment manifests
 
 ---
 

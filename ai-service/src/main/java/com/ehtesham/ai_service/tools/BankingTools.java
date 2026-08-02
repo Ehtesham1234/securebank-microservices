@@ -62,7 +62,7 @@ public class BankingTools {
     public List<AccountSummary> getUserAccounts(ToolContext toolContext) {
         Long userId = userId(toolContext);
         log.info("Tool: get_user_accounts(userId={})", userId);
-        List<AccountSummary> accounts = accountClient.getMyAccounts(userId);
+        List<AccountSummary> accounts = accountClient.getMyAccounts().getData();
         log.info("Tool: get_user_accounts returned {} accounts", accounts.size());
         return accounts;
     }
@@ -82,7 +82,7 @@ public class BankingTools {
     public List<LoanSummary> getUserLoans(ToolContext toolContext) {
         Long userId = userId(toolContext);
         log.info("Tool: get_user_loans(userId={})", userId);
-        List<LoanSummary> loans = loanClient.getMyLoans(userId, 0, 10);
+        List<LoanSummary> loans = loanClient.getMyLoans(0, 10).getData().getContent();
         log.info("Tool: get_user_loans returned {} loans", loans.size());
         return loans;
     }
@@ -106,7 +106,8 @@ public class BankingTools {
         Long userId = userId(toolContext);
         log.info("Tool: get_transaction_history(accountId={}, userId={})", accountId, userId);
         List<TransactionSummary> txns =
-                transactionClient.getTransactionHistory(accountId, userId, 0, 20);
+                transactionClient.getTransactionHistory(accountId, 0, 20)
+                        .getData().getContent();
         log.info("Tool: get_transaction_history returned {} transactions", txns.size());
         return txns;
     }
@@ -134,7 +135,8 @@ public class BankingTools {
         log.info("Tool: calculate_spending_analysis(accountId={}, userId={})", accountId, userId);
 
         List<TransactionSummary> txns =
-                transactionClient.getTransactionHistory(accountId, userId, 0, 100);
+                transactionClient.getTransactionHistory(accountId, 0, 100)
+                        .getData().getContent();
 
         BigDecimal totalSpent = txns.stream()
                 .filter(t -> "WITHDRAW".equals(t.getType()) || "TRANSFER_OUT".equals(t.getType()))

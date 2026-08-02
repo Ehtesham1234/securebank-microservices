@@ -43,9 +43,13 @@ public class WebSocketNotificationService {
                 .timestamp(LocalDateTime.now())
                 .build();
 
-        String destination = "/topic/balance/" + userId;
-
-        messagingTemplate.convertAndSend(destination, message);
+        // convertAndSendToUser routes this to whichever active session has
+        // a Principal whose getName() equals userId.toString() — set by
+        // WsPrincipalHandshakeHandler during the WebSocket handshake. No
+        // client can receive another user's updates by guessing a path
+        // segment, because there's no such path segment anymore.
+        messagingTemplate.convertAndSendToUser(
+                userId.toString(), "/queue/balance", message);
 
         log.info("WebSocket balance update sent to userId={}, " +
                         "account={}, newBalance={}",

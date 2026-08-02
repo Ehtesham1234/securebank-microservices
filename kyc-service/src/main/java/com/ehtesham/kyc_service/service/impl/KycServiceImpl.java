@@ -28,6 +28,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -45,6 +47,24 @@ public class KycServiceImpl implements KycService {
 
     @Value("${file.upload.path:uploads}")
     private String uploadPath;
+
+    // M3 fix: whitelist by ACTUAL content (magic bytes), not by trusting
+    // the client-supplied filename extension or Content-Type header —
+    // both are attacker-controlled. Extension is still checked too, but
+    // only as a secondary, cheap rejection — the magic-byte check is what
+    // actually decides whether a file is what it claims to be.
+    private static final Set<String> ALLOWED_EXTENSIONS =
+            Set.of(".pdf", ".jpg", ".jpeg", ".png");
+
+    private static final long MAX_FILE_SIZE_BYTES = 10L * 1024 * 1024; // 10MB
+
+    private static final Map<String, byte[]> MAGIC_BYTES = Map.of(
+            "PDF", new byte[]{0x25, 0x50, 0x44, 0x46},                 // %PDF
+            "JPEG", new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF}, // JPEG SOI
+            "PNG", new byte[]{
+                    (byte) 0x89, 0x50, 0x4E, 0x47,
+                    0x0D, 0x0A, 0x1A, 0x0A}                            // PNG signature
+    );
 
     public KycServiceImpl(
             KycDocumentRepository kycRepository,
@@ -148,7 +168,6 @@ public class KycServiceImpl implements KycService {
         doc.setVerifiedBy(tellerUserId);
 
         Long customerId = doc.getUserId();
-        String customerEmail = ""; // fetched below
 
         // Step 1: Activate user in securebank-api
         // This changes their status from PENDING_KYC to ACTIVE
@@ -162,19 +181,30 @@ public class KycServiceImpl implements KycService {
                             "Please try again: " + e.getMessage());
         }
 
-        // Step 2: Create savings account + debit card
-        // in account-service via internal endpoint
+        // Step 2: fetch the real customer details, then create the
+        // savings account + debit card in account-service via internal
+        // endpoint using the real name — and notify via Kafka using the
+        // real email. (H1 fix: this used to run AFTER a first pass that
+        // called kycSetup with a placeholder name/email and published a
+        // premature event — leftover from a merge. Since createSavingsAccount
+        // and createDebitCard are correctly idempotent, that first call
+        // silently "won" — it created the account/card, and this second,
+        // correct call just found them already there and never updated the
+        // name. Every customer ended up with a card permanently labeled
+        // "Customer <userId>". There is now only one call to each.)
+        InternalUserResponse customer;
         try {
-            // We get name from KYC document number is not enough
-            // Use a placeholder — in production, kyc-service
-            // would have called securebank-api for user details
-            // For now we pass userId and let account-service
-            // use it — the card holder name will be updated
-            // by kyc-service calling user internal endpoint
+            customer = userServiceClient.getUserById(customerId);
+        } catch (Exception e) {
+            throw new KycOperationException(
+                    "Could not fetch customer details: " + e.getMessage());
+        }
+
+        try {
             var setup = accountServiceClient.kycSetup(
                     customerId,
-                    "Customer",   // placeholder
-                    String.valueOf(customerId));
+                    customer.getFirstName(),
+                    customer.getLastName());
             log.info("Account created for userId={}, " +
                             "accountNumber={}", customerId,
                     setup.getAccountNumber());
@@ -193,34 +223,14 @@ public class KycServiceImpl implements KycService {
 
         kycRepository.save(doc);
 
-        // Step 3: Notify customer via Kafka
-        // Email comes from gateway header set during this request
-        // (the teller's email — not ideal for customer notification)
-        // In production: call securebank-api internal/users/{id}
-        // to get customer email. For now use userId as key.
+        // Step 3: notify customer via Kafka, using their real email —
+        // exactly once.
         kycEventPublisher.publishKycVerified(
-                customerId, customerEmail);
+                customerId, customer.getEmail());
 
         log.info("KYC verified: kycId={}, customerId={}, " +
                 "tellerUserId={}", kycId, customerId, tellerUserId);
-        // After getting the kycDocument, fetch user details:
-                InternalUserResponse customer;
-                try {
-                    customer = userServiceClient.getUserById(customerId);
-                } catch (Exception e) {
-                    throw new KycOperationException(
-                            "Could not fetch customer details: " + e.getMessage());
-                }
 
-        // Then use real name in account setup:
-                var setup = accountServiceClient.kycSetup(
-                        customerId,
-                        customer.getFirstName(),
-                        customer.getLastName());
-
-        // And real email for notification:
-                kycEventPublisher.publishKycVerified(
-                        customerId, customer.getEmail());
         return mapToResponse(doc);
     }
 
@@ -277,6 +287,8 @@ public class KycServiceImpl implements KycService {
 
     private String saveFile(MultipartFile file, Long userId) {
         try {
+            validateKycFile(file);
+
             Path uploadDir = Paths.get(
                     uploadPath, "kyc", userId.toString());
             Files.createDirectories(uploadDir);
@@ -298,6 +310,66 @@ public class KycServiceImpl implements KycService {
             throw new RuntimeException(
                     "Failed to save file: " + e.getMessage());
         }
+    }
+
+    // M3 fix: reject anything that isn't actually a PDF/JPEG/PNG before it
+    // ever touches disk. A malicious .html/.svg (stored XSS against
+    // whichever teller opens it later) or an executable renamed with an
+    // image extension both fail this check regardless of what the
+    // filename or Content-Type header claims.
+    private void validateKycFile(MultipartFile file) throws IOException {
+
+        if (file == null || file.isEmpty()) {
+            throw new KycOperationException(
+                    "No file was uploaded.");
+        }
+
+        if (file.getSize() > MAX_FILE_SIZE_BYTES) {
+            throw new KycOperationException(
+                    "File exceeds the 10MB size limit.");
+        }
+
+        String original = file.getOriginalFilename();
+        String extension = (original != null && original.contains("."))
+                ? original.substring(
+                        original.lastIndexOf(".")).toLowerCase()
+                : "";
+
+        if (!ALLOWED_EXTENSIONS.contains(extension)) {
+            throw new KycOperationException(
+                    "Unsupported file type. Only PDF, JPG, and PNG " +
+                            "documents are accepted.");
+        }
+
+        byte[] header = new byte[8];
+        int read;
+        try (var in = file.getInputStream()) {
+            read = in.readNBytes(header, 0, header.length);
+        }
+
+        boolean matchesKnownType =
+                startsWith(header, read, MAGIC_BYTES.get("PDF"))
+                        || startsWith(header, read, MAGIC_BYTES.get("JPEG"))
+                        || startsWith(header, read, MAGIC_BYTES.get("PNG"));
+
+        if (!matchesKnownType) {
+            throw new KycOperationException(
+                    "File content does not match a supported document " +
+                            "type (PDF, JPG, or PNG). The file may be " +
+                            "corrupted or mislabeled.");
+        }
+    }
+
+    private boolean startsWith(byte[] data, int dataLength, byte[] prefix) {
+        if (dataLength < prefix.length) {
+            return false;
+        }
+        for (int i = 0; i < prefix.length; i++) {
+            if (data[i] != prefix[i]) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private KycResponse mapToResponse(KycDocument doc) {
