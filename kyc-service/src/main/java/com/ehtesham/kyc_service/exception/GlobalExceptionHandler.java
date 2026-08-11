@@ -88,6 +88,26 @@ public class GlobalExceptionHandler {
                 ));
     }
 
+    // Bug fix: KycDocument now has @Version (see the migration adding
+    // it) so two staff acting on the same submission at once produces a
+    // real, catchable conflict instead of a silent last-write-wins —
+    // this is what turns that into a clean 409 instead of a raw 500.
+    @ExceptionHandler(org.springframework.orm.ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponse> handleOptimisticLock(
+            org.springframework.orm.ObjectOptimisticLockingFailureException ex,
+            HttpServletRequest request) {
+        log.warn("Concurrent update conflict at {}: {}",
+                request.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of(
+                        409,
+                        "CONCURRENT_UPDATE",
+                        "This KYC submission was just updated by someone " +
+                                "else. Please refresh before trying again.",
+                        request.getRequestURI()
+                ));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneric(
             Exception ex, HttpServletRequest request) {

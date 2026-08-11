@@ -42,8 +42,52 @@ public class InternalUserController {
                         new ResourceNotFoundException(
                                 "User not found: " + userId));
 
+        // Bug fix: this used to force ACTIVE unconditionally, with no
+        // check on the current status — a KYC-verification action could
+        // silently reactivate a user who was separately SUSPENDED
+        // (fraud/compliance hold) or CLOSED in the meantime. Only
+        // PENDING_KYC (the normal path) or an already-ACTIVE user (a
+        // harmless retry/duplicate call) may move to ACTIVE here;
+        // anything else is left untouched and reported back.
+        if (user.getUserStatus() != UserStatus.PENDING_KYC
+                && user.getUserStatus() != UserStatus.ACTIVE) {
+            throw new com.ehtesham.securebank.common.exception.AccountOperationException(
+                    "Cannot activate userId=" + userId +
+                            " — current status is " + user.getUserStatus() +
+                            ", not PENDING_KYC");
+        }
+
         user.setUserStatus(UserStatus.ACTIVE);
         userRepository.save(user);
+
+        return ResponseEntity.ok().build();
+    }
+
+    // Bug fix: compensating action for the KYC-verification saga gap —
+    // activateUser() above commits independently of kyc-service's own
+    // transaction (separate service, separate DB). If kyc-service then
+    // fails to provision the account/debit card and rolls back its own
+    // KYC record to PENDING, the remote activation above had already
+    // committed, leaving the user ACTIVE with no account and no verified
+    // KYC. kyc-service calls this on that failure path to put the user
+    // back where they started. Only reverts a user who is currently
+    // ACTIVE — if their status has since changed for an unrelated reason
+    // (e.g. a teller already suspended them), this leaves that alone
+    // rather than clobbering it.
+    @PutMapping("/{userId}/revert-to-pending-kyc")
+    @PreAuthorize("hasAnyAuthority('ROLE_TELLER','ROLE_ADMIN')")
+    public ResponseEntity<Void> revertToPendingKyc(
+            @PathVariable Long userId) {
+
+        var user = userRepository.findById(userId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "User not found: " + userId));
+
+        if (user.getUserStatus() == UserStatus.ACTIVE) {
+            user.setUserStatus(UserStatus.PENDING_KYC);
+            userRepository.save(user);
+        }
 
         return ResponseEntity.ok().build();
     }

@@ -32,10 +32,7 @@ public class SecurityConfig {
                 .sessionManagement(s -> s.sessionCreationPolicy(
                         SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        // Internal — called by other services only
-                        // not routed through gateway
                         .requestMatchers(
-                                "/api/v1/internal/**",
                                 "/actuator/health",
                                 "/actuator/info",
                                 // Swagger — allow in dev
@@ -43,8 +40,21 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/swagger-ui.html")
                         .permitAll()
-                        // Everything else needs authentication
-                        // (gateway validates JWT before forwarding)
+                        // C1-systemic fix: coarse defense-in-depth net —
+                        // if a future admin endpoint here is ever added
+                        // without @PreAuthorize, this still blocks it
+                        // instead of silently allowing any authenticated
+                        // customer through, which is exactly what
+                        // happened to AccountController before this fix.
+                        .requestMatchers("/api/v1/admin/**")
+                        .hasAuthority("ROLE_ADMIN")
+                        // "/api/v1/internal/**" used to be permitAll here
+                        // (stale — predates the JWT-forwarding refactor,
+                        // back when it was protected by network topology
+                        // instead). It now requires authentication like
+                        // everything else; @PreAuthorize on
+                        // InternalAccountController's methods enforces
+                        // WHO may call each one.
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(

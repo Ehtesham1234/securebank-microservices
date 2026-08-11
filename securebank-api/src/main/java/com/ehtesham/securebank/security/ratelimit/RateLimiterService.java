@@ -1,12 +1,12 @@
 package com.ehtesham.securebank.security.ratelimit;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.function.Supplier;
 
 /*
@@ -24,16 +24,26 @@ import java.util.function.Supplier;
  *   3. deleting the in-memory implementation below and uncommenting the
  *      Redis one — the public method signature (tryConsume(key, capacity,
  *      refillPeriod)) is identical, so nothing calling this class changes.
+ *
+ * M3 fix: keys here include attacker-influenced values (login:<email>,
+ * register:<ip>, send-otp:<email>) — a plain ConcurrentHashMap never
+ * evicts, so cycling through enough distinct emails/IPs grew this
+ * unboundedly (memory-growth DoS). Caffeine bounds it two ways:
+ * expireAfterAccess reclaims idle keys on its own, and maximumSize is a
+ * hard backstop so even a burst faster than the expiry window can't
+ * exhaust memory before eviction catches up.
  */
 @Service
 public class RateLimiterService {
 
-    // one bucket PER unique key (IP address, or IP+email combo)
-    private final ConcurrentMap<String, Bucket> buckets = new ConcurrentHashMap<>();
+    private final Cache<String, Bucket> buckets = Caffeine.newBuilder()
+            .expireAfterAccess(Duration.ofMinutes(30))
+            .maximumSize(100_000)
+            .build();
 
     public boolean tryConsume(String key, int capacity, Duration refillPeriod) {
 
-        Bucket bucket = buckets.computeIfAbsent(
+        Bucket bucket = buckets.get(
                 key,
                 k -> createNewBucket(capacity, refillPeriod));
 

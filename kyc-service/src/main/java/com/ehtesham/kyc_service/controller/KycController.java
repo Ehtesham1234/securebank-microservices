@@ -1,5 +1,6 @@
 package com.ehtesham.kyc_service.controller;
 
+import com.ehtesham.kyc_service.dto.KycDocumentFile;
 import com.ehtesham.kyc_service.dto.KycRejectRequest;
 import com.ehtesham.kyc_service.dto.KycResponse;
 import com.ehtesham.kyc_service.dto.KycSubmitRequest;
@@ -9,6 +10,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -59,6 +61,24 @@ public class KycController {
         return ResponseEntity.ok(ApiResponse.success(
                 "KYC status retrieved",
                 kycService.getMyKycStatus()));
+    }
+
+    // C7 fix: added so the uploaded document is actually retrievable —
+    // by a teller/admin reviewing it, or by the submitting customer
+    // viewing their own. Ownership/staff check happens in the service
+    // (self-or-staff, same pattern as elsewhere); this just needs to
+    // rule out completely unauthenticated/wrong-role callers up front.
+    @GetMapping("/kyc/{id}/document")
+    @PreAuthorize("hasAnyAuthority('ROLE_CUSTOMER','ROLE_TELLER','ROLE_ADMIN')")
+    public ResponseEntity<byte[]> getKycDocument(@PathVariable Long id) {
+
+        KycDocumentFile file = kycService.getKycDocumentFile(id);
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(file.getContentType()))
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "inline; filename=\"" + file.getFilename() + "\"")
+                .body(file.getContent());
     }
 
     // ── TELLER endpoints ──────────────────────────────────────────

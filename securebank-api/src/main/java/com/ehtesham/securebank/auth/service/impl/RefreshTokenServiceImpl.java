@@ -123,11 +123,17 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
     @Override
     @Transactional
     public void revokeByToken(String token) {
+        // M1 fix: this used to call revokeAllUserTokens(...) — identical
+        // behavior to logoutAllDevices(), even though the rest of the
+        // session model (tokenFamily, revokeSession with an ownership
+        // check, getActiveSessions) is clearly built for multi-device
+        // support. Logging out on one device shouldn't kill every other
+        // device's session too.
         refreshTokenRepository
                 .findByToken(token)
                 .ifPresent(refreshToken ->
                         refreshTokenRepository
-                                .revokeAllUserTokens(refreshToken.getUser()));
+                                .revokeByTokenFamily(refreshToken.getTokenFamily()));
     }
 
     @Override

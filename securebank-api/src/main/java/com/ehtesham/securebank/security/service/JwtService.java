@@ -57,11 +57,30 @@ public class JwtService {
 
     // role embedded in token at generation
     public String generateToken(String email, String role, Long userId, UserStatus userStatus) {
-        return Jwts.builder()
+        return generateToken(email, role, userId, userStatus, null);
+    }
+
+    // Bug fix: overload that also embeds the refresh token's family, so
+    // AccountSecurityController.getActiveSessions() can tell which
+    // listed session is "this one" — previously there was no wiring at
+    // all for that (the access token carried nothing to compare against
+    // a session list), so the "currentSession" flag on every entry was
+    // permanently false. Optional/nullable: callers that don't have a
+    // token family yet (there are none left, but kept for safety) still
+    // get a valid token, just without that one extra claim.
+    public String generateToken(String email, String role, Long userId,
+                                UserStatus userStatus, String tokenFamily) {
+        var builder = Jwts.builder()
                 .subject(email)
                 .claim("role", role)// ← embed role
                 .claim("userId", userId.toString())
-                .claim("userStatus", userStatus.name())
+                .claim("userStatus", userStatus.name());
+
+        if (tokenFamily != null) {
+            builder.claim("tokenFamily", tokenFamily);
+        }
+
+        return builder
                 .issuedAt(new Date())
                 .expiration(new Date(
                         System.currentTimeMillis() + jwtExpiration))

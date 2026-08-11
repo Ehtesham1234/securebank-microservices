@@ -52,6 +52,16 @@ public class Card {
     @Column(name = "expiry_date", nullable = false)
     private LocalDate expiryDate;
 
+    // L1 fix: independent of the CVV itself never being stored (C5) —
+    // this tracks wrong VERIFICATION guesses so the endpoint can't be
+    // brute-forced (3 digits = 1000 combinations) if a session is ever
+    // compromised without the physical card.
+    @Column(name = "cvv_failed_attempts", nullable = false)
+    private int cvvFailedAttempts = 0;
+
+    @Column(name = "cvv_locked_until")
+    private java.time.LocalDateTime cvvLockedUntil;
+
     // C5 fix: cvv_hash removed entirely. A CVV must never be retained
     // after issuance/authorization in ANY form — hashed included — per
     // PCI-DSS 3.2. It's generated, shown to the user once at issuance, and
@@ -59,6 +69,14 @@ public class Card {
     // depending on persisting it.
 
     // DEBIT_CARD — daily spending limit
+    // NOTE: currently informational only, not enforced anywhere. There
+    // is no endpoint that spends against a debit card specifically
+    // (account withdraw/transfer aren't wired to a Card at all), so
+    // there's nowhere in the current architecture to check this against.
+    // Left as-is rather than silently enforced, so as not to introduce
+    // new spend-blocking behavior as a side effect of a bug-fix pass —
+    // enforcing it properly needs a real "debit card transaction"
+    // endpoint first.
     @Column(name = "daily_limit", precision = 19, scale = 4)
     private BigDecimal dailyLimit;
 
@@ -71,6 +89,18 @@ public class Card {
 
     @Column(name = "outstanding_bill", precision = 19, scale = 4)
     private BigDecimal outstandingBill = BigDecimal.ZERO;
+
+    // C6 fix: spend() increments this by each purchase amount.
+    // generateMonthlyStatements() previously derived "this cycle's spend"
+    // as (creditLimit - availableCredit) instead of reading it directly —
+    // but that expression is always just the CURRENT outstandingBill
+    // (availableCredit is kept as creditLimit - outstandingBill at all
+    // times by spend()/payCreditCardBill()), so it silently doubled the
+    // closing balance every single statement. This field is the actual
+    // "spend since last statement" counter; it's reset to zero once a
+    // statement is generated, independent of outstandingBill/availableCredit.
+    @Column(name = "cycle_spend", precision = 19, scale = 4)
+    private BigDecimal cycleSpend = BigDecimal.ZERO;
 
     @Column(name = "billing_cycle_day")
     private Integer billingCycleDay;

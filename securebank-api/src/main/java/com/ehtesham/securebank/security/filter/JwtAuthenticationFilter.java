@@ -72,6 +72,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         jwt, claims -> claims.get("userId", String.class));
                 String userStatus = jwtService.extractClaim(
                         jwt, claims -> claims.get("userStatus", String.class));
+                // Bug fix: extract the tokenFamily claim (if present —
+                // older/other tokens simply won't have it) so
+                // getActiveSessions() can identify "this session".
+                String tokenFamily = jwtService.extractClaim(
+                        jwt, claims -> claims.get("tokenFamily", String.class));
 
                 Long userId = Long.parseLong(userIdStr);
 
@@ -83,7 +88,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 // claims — no DB hit needed, same as before.
                 CustomUserPrincipal principal =
                         customUserDetailsService.buildPrincipalFromHeaders(
-                                userId, email, role, userStatus);
+                                userId, email, role, userStatus, tokenFamily);
 
                 UsernamePasswordAuthenticationToken authToken =
                         new UsernamePasswordAuthenticationToken(

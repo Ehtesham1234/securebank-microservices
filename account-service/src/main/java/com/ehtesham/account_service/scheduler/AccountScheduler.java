@@ -1,5 +1,6 @@
 package com.ehtesham.account_service.scheduler;
 
+import com.ehtesham.account_service.account.service.AccountService;
 import com.ehtesham.account_service.card.enums.CardStatus;
 import com.ehtesham.account_service.card.repository.CardRepository;
 import com.ehtesham.account_service.card.service.CardService;
@@ -22,12 +23,16 @@ public class AccountScheduler  {
     private final CardRepository cardRepository;
     private final CardService cardService;
     private final IdempotencyKeyRepository idempotencyKeyRepository;
+    private final AccountService accountService;
     public AccountScheduler (
             CardRepository cardRepository,
-            CardService cardService, IdempotencyKeyRepository idempotencyKeyRepository) {
+            CardService cardService,
+            IdempotencyKeyRepository idempotencyKeyRepository,
+            AccountService accountService) {
         this.cardRepository = cardRepository;
         this.cardService = cardService;
         this.idempotencyKeyRepository = idempotencyKeyRepository;
+        this.accountService = accountService;
     }
 
     // ── Job 1: Generate monthly credit card statements ────────
@@ -86,6 +91,23 @@ public class AccountScheduler  {
                     "idempotency keys", deleted);
         } catch (Exception e) {
             log.error("SCHEDULER: Idempotency cleanup failed: {}",
+                    e.getMessage());
+        }
+    }
+
+    // ── Job 4: Pay out matured Fixed Deposits ─────────────────
+    // C9 fix: this job didn't exist at all — FDs had no maturity
+    // handling anywhere. Runs at 4:00 AM every day; processMaturedFixed
+    // Deposits() is @Transactional at the service layer, and handles
+    // each FD in its own try/catch so one bad row can't block the rest.
+    @Scheduled(cron = "0 0 4 * * *")
+    public void processMaturedFixedDeposits() {
+        log.info("SCHEDULER: Checking for matured Fixed Deposits");
+        try {
+            accountService.processMaturedFixedDeposits();
+            log.info("SCHEDULER: Fixed Deposit maturity run complete");
+        } catch (Exception e) {
+            log.error("SCHEDULER: Fixed Deposit maturity run failed: {}",
                     e.getMessage());
         }
     }

@@ -1,6 +1,7 @@
 package com.ehtesham.account_service.transaction.service.impl;
 
 import com.ehtesham.account_service.account.entity.Account;
+import com.ehtesham.account_service.account.enums.AccountType;
 import com.ehtesham.account_service.account.repository.AccountRepository;
 import com.ehtesham.account_service.account.service.AccountService;
 import com.ehtesham.account_service.client.InternalUserStatusResponse;
@@ -11,6 +12,7 @@ import com.ehtesham.account_service.exception.AccountSuspendedException;
 import com.ehtesham.account_service.exception.InsufficientFundsException;
 import com.ehtesham.account_service.exception.ResourceNotFoundException;
 import com.ehtesham.account_service.transaction.dto.DepositRequest;
+import com.ehtesham.account_service.transaction.dto.EmiDebitResponse;
 import com.ehtesham.account_service.transaction.dto.TransactionResponse;
 import com.ehtesham.account_service.transaction.dto.TransferRequest;
 import com.ehtesham.account_service.transaction.dto.WithdrawRequest;
@@ -96,6 +98,7 @@ public class MoneyMovementExecutor {
         Account account = accountService
                 .getOwnedAccount(accountId, userId);
         validateAccountActive(account);
+        validateNotFixedDeposit(account);
         verifyLiveUserStatus(userId);
         checkDailyLimit(accountId, TransactionType.DEPOSIT,
                 request.getAmount(), dailyMaxDeposit);
@@ -136,6 +139,7 @@ public class MoneyMovementExecutor {
         Account account = accountService
                 .getOwnedAccount(accountId, userId);
         validateAccountActive(account);
+        validateNotFixedDeposit(account);
         verifyLiveUserStatus(userId);
         checkDailyLimit(accountId, TransactionType.WITHDRAW,
                 request.getAmount(), dailyMaxWithdraw);
@@ -206,6 +210,8 @@ public class MoneyMovementExecutor {
 
         validateAccountActive(fromAccount);
         validateAccountActive(toAccount);
+        validateNotFixedDeposit(fromAccount);
+        validateNotFixedDeposit(toAccount);
         verifyLiveUserStatus(userId);
         checkDailyLimit(fromAccount.getId(), TransactionType.TRANSFER_OUT,
                 request.getAmount(), dailyMaxTransfer);
@@ -223,8 +229,24 @@ public class MoneyMovementExecutor {
 
         fromAccount.setBalance(fromNewBalance);
         toAccount.setBalance(toNewBalance);
-        accountRepository.save(fromAccount);
-        accountRepository.save(toAccount);
+
+        // Bug fix: saves used to always happen in "from, then to" order
+        // — i.e. whichever account the request named first. Two
+        // transfers running in opposite directions between the SAME two
+        // accounts at the same moment (A→B and B→A) would then acquire
+        // their row-level locks in opposite order, which is a classic
+        // recipe for a DB-level deadlock (not data corruption — one side
+        // just aborts and can retry — but avoidable). Saving in a fixed
+        // canonical order (lower account ID first) regardless of
+        // transfer direction means every concurrent transfer between
+        // this pair of accounts requests their locks in the same order.
+        if (fromAccount.getId() < toAccount.getId()) {
+            accountRepository.save(fromAccount);
+            accountRepository.save(toAccount);
+        } else {
+            accountRepository.save(toAccount);
+            accountRepository.save(fromAccount);
+        }
 
         String sharedRef = generateTransactionRef();
 
@@ -273,6 +295,103 @@ public class MoneyMovementExecutor {
                 request.getDescription());
 
         return mapToResponse(savedOutgoing);
+    }
+
+    // C4 fix: previously, loan-service's payEmi() updated the loan's own
+    // records (outstandingAmount, EMI status, could even close the loan)
+    // but never called anything to actually move money — any customer
+    // could pay off/close a loan for free with zero funds ever leaving
+    // the account. This is the debit side loan-service now calls
+    // synchronously, BEFORE it changes any of its own state, so a failed
+    // debit here means nothing on the loan side gets modified either
+    // (see LoanServiceImpl.payEmi).
+    //
+    // Idempotent the same way disbursement now is (see doCreditForLoan
+    // below): transactionRef is deterministic ("EMI-<loanId>-<emiNumber>"),
+    // and transaction_ref has a real DB-level UNIQUE constraint. The
+    // findByTransactionRef check below is the fast path for a simple
+    // retry after the first call already succeeded. If two calls for the
+    // exact same EMI genuinely race each other, the loser's INSERT hits
+    // the unique constraint, this whole @Transactional method rolls back
+    // (safely undoing that request's balance debit — it never partially
+    // applies), and the caller gets a 409 rather than a silent double
+    // debit. That's an acceptable trade-off for a service-to-service,
+    // retry-friendly call — not the same bar as a browser-facing button.
+    @Transactional
+    public EmiDebitResponse doEmiDebit(
+            Long accountId, Long userId, Long loanId, Integer emiNumber,
+            BigDecimal amount, String description) {
+
+        String ref = "EMI-" + loanId + "-" + emiNumber;
+
+        Transaction existing = transactionRepository
+                .findByTransactionRef(ref)
+                .orElse(null);
+
+        if (existing != null) {
+            return EmiDebitResponse.builder()
+                    .success(true)
+                    .newBalance(existing.getBalanceAfter())
+                    .transactionRef(existing.getTransactionRef())
+                    .build();
+        }
+
+        Account account = accountRepository.findById(accountId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Account not found: " + accountId));
+
+        // Bug fix: this method used to load the account with no
+        // ownership check at all, unlike every other money-movement
+        // method here (which all go through getOwnedAccount). The
+        // controller's @PreAuthorize only verifies that `userId` matches
+        // the caller — it never verified that `accountId` belongs to
+        // that userId, so this method alone decided whose money actually
+        // moved. It was only safe in practice because loan-service
+        // separately validates accountId == loan.getAccountId() before
+        // calling, and the gateway has no route to /api/v1/internal/**.
+        // Enforcing it here too means this endpoint is safe on its own
+        // terms, not just because of what currently calls it.
+        if (!account.getUserId().equals(userId)) {
+            throw new ResourceNotFoundException(
+                    "Account not found: " + accountId);
+        }
+
+        validateAccountActive(account);
+        validateNotFixedDeposit(account);
+
+        if (account.getBalance().compareTo(amount) < 0) {
+            throw new InsufficientFundsException(
+                    "Insufficient balance for EMI payment");
+        }
+
+        BigDecimal newBalance = account.getBalance().subtract(amount);
+        account.setBalance(newBalance);
+        accountRepository.save(account);
+
+        Transaction transaction = new Transaction();
+        transaction.setTransactionRef(ref);
+        transaction.setAccount(account);
+        transaction.setType(TransactionType.WITHDRAW);
+        transaction.setAmount(amount);
+        transaction.setBalanceAfter(newBalance);
+        transaction.setStatus(TransactionStatus.SUCCESS);
+        transaction.setDescription(description);
+        transactionRepository.save(transaction);
+
+        eventPublisher.publishTransactionCompleted(
+                account.getUserId(),
+                account.getAccountNumber(),
+                newBalance,
+                amount,
+                TransactionType.WITHDRAW,
+                ref,
+                description);
+
+        return EmiDebitResponse.builder()
+                .success(true)
+                .newBalance(newBalance)
+                .transactionRef(ref)
+                .build();
     }
 
     // M5 fix: X-User-Status (and therefore SecurityContext/gateway
@@ -330,6 +449,23 @@ public class MoneyMovementExecutor {
             case DORMANT -> throw new AccountOperationException(
                     "This account is dormant.");
             default -> { /* ACTIVE — allow */ }
+        }
+    }
+
+    // C8 fix: a Fixed Deposit is a locked lump-sum instrument — it's
+    // funded once at opening (applyForFixedDeposit(), which now debits a
+    // real source account for it) and paid out once at maturity
+    // (processMaturedFixedDeposits()). Before this check existed, none
+    // of deposit/withdraw/transfer distinguished an FD account from a
+    // regular one at all, so an FD's balance (previously mintable out of
+    // nowhere — see applyForFixedDeposit()) could just be withdrawn or
+    // transferred out immediately like ordinary funds.
+    private void validateNotFixedDeposit(Account account) {
+        if (account.getAccountType() == AccountType.FIXED_DEPOSIT) {
+            throw new AccountOperationException(
+                    "Fixed Deposit accounts are locked until maturity " +
+                            "and can't be used for deposits, " +
+                            "withdrawals, or transfers.");
         }
     }
 

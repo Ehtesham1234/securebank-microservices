@@ -4,8 +4,10 @@ import com.ehtesham.account_service.common.response.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -96,6 +98,58 @@ public class GlobalExceptionHandler {
                 ));
     }
 
+    // M2 fix: Account correctly uses @Version for optimistic locking
+    // (prevents the classic lost-update/overdraft race on concurrent
+    // balance updates), but a genuine conflict was falling through to
+    // the generic Exception.class handler below and returning a bare
+    // 500 — no data-integrity risk (the @Version protection already
+    // worked), but the client had no way to tell "retry this" apart
+    // from "something's actually broken".
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponse> handleOptimisticLock(
+            ObjectOptimisticLockingFailureException ex, HttpServletRequest request) {
+        log.warn("Optimistic lock conflict on {}: {}", request.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of(
+                        409,
+                        "CONCURRENT_UPDATE",
+                        "This record was updated by another request. Please retry.",
+                        request.getRequestURI()
+                ));
+    }
+
+    // Backs the idempotency approach in EMI debit (C4) and loan
+    // disbursement (H2): a genuine race on the same deterministic
+    // transactionRef hits the DB's UNIQUE constraint, which safely
+    // rolls back whichever request lost (undoing its balance change) —
+    // this turns that into a clear 409 instead of a raw 500.
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(
+            DataIntegrityViolationException ex, HttpServletRequest request) {
+        log.warn("Data integrity violation on {}: {}", request.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of(
+                        409,
+                        "CONFLICTING_OPERATION",
+                        "A conflicting operation occurred — this may already " +
+                                "have been processed. Please check before retrying.",
+                        request.getRequestURI()
+                ));
+    }
+
+    // L1 fix: too many wrong CVV guesses against one card.
+    @ExceptionHandler(CvvVerificationLockedException.class)
+    public ResponseEntity<ErrorResponse> handleCvvLocked(
+            CvvVerificationLockedException ex, HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(ErrorResponse.of(
+                        429,
+                        "CVV_VERIFICATION_LOCKED",
+                        ex.getMessage(),
+                        request.getRequestURI()
+                ));
+    }
+
     // M5 fix: live status check found the account no longer active.
     @ExceptionHandler(AccountSuspendedException.class)
     public ResponseEntity<ErrorResponse> handleSuspended(
@@ -128,6 +182,27 @@ public class GlobalExceptionHandler {
                 ));
     }
 
+    // H1 fix: @Validated + @RequestParam/@PathVariable constraints
+    // (e.g. the new @DecimalMin on CardController's spend/pay-bill
+    // amount) throw THIS, not MethodArgumentNotValidException — that
+    // one's only for @RequestBody @Valid. Without this handler, a
+    // rejected negative amount would 500 instead of a clean 400.
+    @ExceptionHandler(jakarta.validation.ConstraintViolationException.class)
+    public ResponseEntity<ErrorResponse> handleConstraintViolation(
+            jakarta.validation.ConstraintViolationException ex, HttpServletRequest request) {
+        String message = ex.getConstraintViolations().stream()
+                .map(v -> v.getPropertyPath() + ": " + v.getMessage())
+                .collect(Collectors.joining("; "));
+
+        return ResponseEntity.badRequest()
+                .body(ErrorResponse.of(
+                        400,
+                        "VALIDATION_FAILED",
+                        message,
+                        request.getRequestURI()
+                ));
+    }
+
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<ErrorResponse> handleState(
             IllegalStateException ex, HttpServletRequest request) {
@@ -136,6 +211,27 @@ public class GlobalExceptionHandler {
                         401,
                         "UNAUTHORIZED",
                         ex.getMessage(),
+                        request.getRequestURI()
+                ));
+    }
+
+    // Bug fix: this used to be a plain IllegalStateException, which was
+    // being caught by the handler above (meant for SecurityUtils's "no
+    // authenticated user" case) and returned as a misleading 401. This
+    // is a genuine internal-consistency edge case — an idempotency-key
+    // INSERT failed on the unique constraint but the row wasn't found on
+    // lookup — and belongs as a 500.
+    @ExceptionHandler(com.ehtesham.account_service.exception.IdempotencyStateException.class)
+    public ResponseEntity<ErrorResponse> handleIdempotencyState(
+            com.ehtesham.account_service.exception.IdempotencyStateException ex,
+            HttpServletRequest request) {
+        log.error("Idempotency state inconsistency at {}: {}",
+                request.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ErrorResponse.of(
+                        500,
+                        "INTERNAL_SERVER_ERROR",
+                        "Could not process this request. Please try again.",
                         request.getRequestURI()
                 ));
     }

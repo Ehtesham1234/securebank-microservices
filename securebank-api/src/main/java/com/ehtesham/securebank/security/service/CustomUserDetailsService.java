@@ -54,6 +54,16 @@ public class CustomUserDetailsService implements UserDetailsService {
     public CustomUserPrincipal buildPrincipalFromHeaders(
             Long userId, String email,
             String role, String userStatus) {
+        return buildPrincipalFromHeaders(
+                userId, email, role, userStatus, null);
+    }
+
+    // Bug fix: overload that also carries the access token's
+    // tokenFamily claim through to the principal — see
+    // CustomUserPrincipal for why.
+    public CustomUserPrincipal buildPrincipalFromHeaders(
+            Long userId, String email,
+            String role, String userStatus, String tokenFamily) {
 
         UserStatus status = UserStatus.ACTIVE;
         try {
@@ -77,6 +87,7 @@ public class CustomUserDetailsService implements UserDetailsService {
                 // Email already verified (they're logged in)
                 true,
                 List.of(new SimpleGrantedAuthority(
-                        role != null ? role : "")));
+                        role != null ? role : "")),
+                tokenFamily);
     }
 }

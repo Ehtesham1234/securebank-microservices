@@ -17,6 +17,11 @@ public interface AuthService {
     void sendEmailVerificationOtp(String email);
     void verifyEmail(String email, String otp);
     List<ActiveSessionResponse> getActiveSessions(Long userId);
+
+    // Bug fix: overload that also takes the caller's current
+    // tokenFamily so the response can flag which session is "this one".
+    List<ActiveSessionResponse> getActiveSessions(
+            Long userId, String currentTokenFamily);
     void revokeSession(Long userId, String tokenFamily);
     void logoutAllDevices(Long userId);
 }

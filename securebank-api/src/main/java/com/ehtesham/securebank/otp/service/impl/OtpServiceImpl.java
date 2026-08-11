@@ -76,7 +76,16 @@ public class OtpServiceImpl implements OtpService {
                     "Too many incorrect attempts. Please request a new code.");
         }
 
-        if (!entity.getOtp().equals(otp)) {
+        // Bug fix: .equals() short-circuits on the first mismatched
+        // character, which leaks (via response timing) how many leading
+        // digits of a guess were correct — a real, if minor, side
+        // channel for a 6-digit code. CvvService already uses
+        // MessageDigest.isEqual for exactly this reason; do the same
+        // here for consistency. (Low practical risk given the lockout
+        // above, but no reason to be inconsistent.)
+        if (!java.security.MessageDigest.isEqual(
+                entity.getOtp().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                otp.getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
             entity.setFailedAttempts(entity.getFailedAttempts() + 1);
             otpRepository.save(entity);
             throw new InvalidOtpException("Invalid or expired OTP");

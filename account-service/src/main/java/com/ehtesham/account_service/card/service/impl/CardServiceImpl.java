@@ -18,10 +18,20 @@ import com.ehtesham.account_service.card.repository.CardRepository;
 import com.ehtesham.account_service.card.repository.CreditCardStatementRepository;
 import com.ehtesham.account_service.card.security.CvvService;
 import com.ehtesham.account_service.card.service.CardService;
+import com.ehtesham.account_service.client.InternalUserStatusResponse;
+import com.ehtesham.account_service.client.UserStatusCheckUnavailableException;
+import com.ehtesham.account_service.client.UserStatusClient;
 import com.ehtesham.account_service.exception.AccountOperationException;
+import com.ehtesham.account_service.exception.AccountSuspendedException;
+import com.ehtesham.account_service.exception.CvvVerificationLockedException;
 import com.ehtesham.account_service.exception.InsufficientFundsException;
 import com.ehtesham.account_service.exception.ResourceNotFoundException;
 import com.ehtesham.account_service.security.SecurityUtils;
+import com.ehtesham.account_service.transaction.entity.Transaction;
+import com.ehtesham.account_service.transaction.enums.TransactionStatus;
+import com.ehtesham.account_service.transaction.enums.TransactionType;
+import com.ehtesham.account_service.transaction.publisher.TransactionEventPublisher;
+import com.ehtesham.account_service.transaction.repository.TransactionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -33,6 +43,7 @@ import java.security.SecureRandom;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -54,18 +65,67 @@ public class CardServiceImpl implements CardService {
     private final AccountRepository accountRepository;
     private final SecurityUtils securityUtils;
     private final CvvService cvvService;
+    private final TransactionRepository transactionRepository;
+    private final TransactionEventPublisher eventPublisher;
+    private final UserStatusClient userStatusClient;
+    private final com.ehtesham.account_service.transaction.service.impl.IdempotencyHelper idempotencyHelper;
+
+    // Bug fix: self-injection (via a @Lazy proxy) so
+    // generateMonthlyStatements() can call generateStatementForCard()
+    // THROUGH Spring's proxy — needed for its
+    // @Transactional(REQUIRES_NEW) to actually take effect, the same
+    // pattern RefreshTokenServiceImpl already uses for
+    // revokeTokenFamily(). Also used by payCreditCardBill() to call
+    // payCreditCardBillInternal() as a genuine bean-to-bean call for
+    // its own @Transactional to apply correctly under the idempotency
+    // wrapper.
+    private final CardService self;
 
     public CardServiceImpl(
             CardRepository cardRepository,
             CreditCardStatementRepository statementRepository,
             AccountRepository accountRepository,
             SecurityUtils securityUtils,
-            CvvService cvvService) {
+            CvvService cvvService,
+            TransactionRepository transactionRepository,
+            TransactionEventPublisher eventPublisher,
+            UserStatusClient userStatusClient,
+            com.ehtesham.account_service.transaction.service.impl.IdempotencyHelper idempotencyHelper,
+            @org.springframework.context.annotation.Lazy CardService self) {
         this.cardRepository = cardRepository;
         this.statementRepository = statementRepository;
         this.accountRepository = accountRepository;
         this.securityUtils = securityUtils;
         this.cvvService = cvvService;
+        this.transactionRepository = transactionRepository;
+        this.eventPublisher = eventPublisher;
+        this.userStatusClient = userStatusClient;
+        this.idempotencyHelper = idempotencyHelper;
+        this.self = self;
+    }
+
+    // Bug fix: closes the same "stale JWT status for up to 15 minutes"
+    // gap that MoneyMovementExecutor already closes for
+    // deposit/withdraw/transfer — this class had no live re-check at
+    // all, so a user suspended mid-session could keep spending on
+    // credit, viewing/verifying their CVV, or paying down a card bill
+    // for the rest of their token's lifetime. Fails open (proceeds on
+    // the gateway-verified status) if securebank-api can't be reached.
+    private void verifyLiveUserStatus(Long userId) {
+        try {
+            InternalUserStatusResponse response =
+                    userStatusClient.getUser(userId);
+
+            if (!"ACTIVE".equals(response.getUserStatus())) {
+                throw new AccountSuspendedException(
+                        "Your account status no longer permits this " +
+                                "operation. Please contact support.");
+            }
+        } catch (UserStatusCheckUnavailableException e) {
+            log.warn("Live user-status check unavailable for userId={}; " +
+                    "proceeding on the gateway-verified status from the " +
+                    "request token instead.", userId);
+        }
     }
 
     /**
@@ -205,25 +265,76 @@ public class CardServiceImpl implements CardService {
     }
 
     @Override
-    @Transactional
+    @Transactional(readOnly = true)
     public void generateMonthlyStatements() {
         int today = LocalDate.now().getDayOfMonth();
 
-        List<Card> cards = cardRepository
+        // Bug fix: this used to load every eligible card and process
+        // them all inside ONE @Transactional method/one Hibernate
+        // session. A try/catch around each card looked like it isolated
+        // failures, but it didn't: Hibernate defers writes until a
+        // flush, and a flush triggered by a LATER card's query (or by
+        // the final commit after the loop) can fail outside any
+        // per-card try/catch and roll back the WHOLE transaction —
+        // silently undoing every statement that appeared to succeed
+        // earlier in the same run. Only IDs are collected here
+        // (read-only); each card is now processed through
+        // generateStatementForCard() below, called via the self-proxy so
+        // it runs in its OWN REQUIRES_NEW transaction — a bad card can
+        // only ever roll back that one card's statement.
+        List<Long> cardIds = cardRepository
                 .findByStatusAndCardType(
                         CardStatus.ACTIVE, CardType.CREDIT_CARD)
                 .stream()
                 .filter(c -> c.getBillingCycleDay() != null
                         && c.getBillingCycleDay() == today)
+                .map(Card::getId)
                 .collect(Collectors.toList());
 
-        for (Card card : cards) {
-            BigDecimal openingBalance =
-                    card.getOutstandingBill();
-            BigDecimal totalSpent = card.getCreditLimit()
-                    .subtract(card.getAvailableCredit());
-            BigDecimal closingBalance =
-                    openingBalance.add(totalSpent);
+        int succeeded = 0;
+        for (Long cardId : cardIds) {
+            try {
+                self.generateStatementForCard(cardId);
+                succeeded++;
+            } catch (Exception e) {
+                log.error("Failed to generate statement for cardId={}: {}",
+                        cardId, e.getMessage(), e);
+            }
+        }
+
+        log.info("Monthly statement generation: {}/{} cards succeeded",
+                succeeded, cardIds.size());
+    }
+
+    @Override
+    @Transactional(propagation =
+            org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public void generateStatementForCard(Long cardId) {
+        Card card = cardRepository.findById(cardId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Card not found: " + cardId));
+
+        // C6 fix: outstandingBill is a live-maintained running ledger —
+            // spend() and payCreditCardBill() already keep it as the exact
+            // current amount owed, updated in real time as each purchase
+            // or payment happens. So it doesn't need anything ADDED to it
+            // here; it already *is* the correct closing balance. The old
+            // code treated it as a stale "opening balance" and added a
+            // (miscalculated) totalSpent on top, which double-counted
+            // every cycle's spend into the balance.
+            //
+            // openingBalance is a historical fact, not something to
+            // derive by subtracting cycleSpend back out — that breaks the
+            // moment a payment also happened mid-cycle (closingBalance -
+            // cycleSpend nets out payments too, not just spend). It's
+            // simply whatever the previous statement's closingBalance was.
+            BigDecimal openingBalance = statementRepository
+                    .findTopByCardOrderByCreatedAtDesc(card)
+                    .map(CreditCardStatement::getClosingBalance)
+                    .orElse(BigDecimal.ZERO);
+
+            BigDecimal totalSpent = card.getCycleSpend();
+            BigDecimal closingBalance = card.getOutstandingBill();
             BigDecimal minimumDue = closingBalance
                     .multiply(MINIMUM_DUE_PERCENTAGE)
                     .setScale(4, RoundingMode.HALF_UP);
@@ -246,17 +357,55 @@ public class CardServiceImpl implements CardService {
 
             card.setOutstandingBill(closingBalance);
             card.setDueDate(dueDate);
-            card.setAvailableCredit(card.getCreditLimit());
+            // C6 fix: previously reset to the full creditLimit
+            // regardless of unpaid carry-over debt, so a customer who
+            // never paid could keep spending up to the full limit again
+            // every cycle on top of what they already owed. Available
+            // credit must stay bounded by what's actually still owed.
+            // (Clamped to zero as a defensive floor — shouldn't go
+            // negative given spend() never lets availableCredit run
+            // below zero, but a statement calculation is the wrong
+            // place to let a rounding edge case surface as a negative
+            // credit line.)
+            card.setAvailableCredit(
+                    card.getCreditLimit()
+                            .subtract(closingBalance)
+                            .max(BigDecimal.ZERO));
+            card.setCycleSpend(BigDecimal.ZERO);
             cardRepository.save(card);
-        }
+    }
+
+    // Bug fix: unlike deposit/withdraw/transfer (all require an
+    // Idempotency-Key and route through IdempotencyHelper), this had no
+    // idempotency protection at all — a network-retry double-submit
+    // would produce two separately-recorded, fully legitimate-looking
+    // WITHDRAW transactions from one intended payment. Mirrors the same
+    // claim-first-then-execute pattern TransactionServiceImpl uses:
+    // this method itself is deliberately NOT @Transactional (so the
+    // idempotency claim commits immediately, before the payment runs —
+    // see IdempotencyHelper's own comment on why), and the actual
+    // payment logic is called through the self-proxy (payCreditCardBill
+    // "Internal") so ITS @Transactional actually takes effect as a
+    // genuine bean-to-bean call.
+    @Override
+    public CardResponse payCreditCardBill(
+            Long cardId, BigDecimal amount, String idempotencyKey) {
+
+        Long userId = securityUtils.getCurrentUserId();
+
+        return idempotencyHelper.executeIdempotently(
+                idempotencyKey, userId, "CC_BILL_PAYMENT",
+                CardResponse.class,
+                () -> self.payCreditCardBillInternal(
+                        cardId, amount, userId));
     }
 
     @Override
     @Transactional
-    public CardResponse payCreditCardBill(
-            Long cardId, BigDecimal amount) {
+    public CardResponse payCreditCardBillInternal(
+            Long cardId, BigDecimal amount, Long userId) {
 
-        Long userId = securityUtils.getCurrentUserId();
+        verifyLiveUserStatus(userId);
         Card card = getCardOwnedByUser(cardId, userId);
 
         if (card.getCardType() != CardType.CREDIT_CARD) {
@@ -270,10 +419,17 @@ public class CardServiceImpl implements CardService {
                     "No outstanding bill to pay");
         }
 
+        // Bug fix: the floor (max(5%, ₹100)) was being compared against
+        // the requested amount directly, but the actual debit below is
+        // capped to the outstanding bill regardless — so owing, say,
+        // ₹50 meant a ₹100 "minimum" was demanded even though ₹50 is
+        // the entire balance and nothing larger could ever be charged.
+        // The minimum can never sensibly exceed what's actually owed.
         BigDecimal minimumDue = card.getOutstandingBill()
                 .multiply(new BigDecimal("0.05"))
                 .setScale(4, RoundingMode.HALF_UP)
-                .max(new BigDecimal("100.00"));
+                .max(new BigDecimal("100.00"))
+                .min(card.getOutstandingBill());
 
         if (amount.compareTo(minimumDue) < 0) {
             throw new AccountOperationException(
@@ -302,9 +458,46 @@ public class CardServiceImpl implements CardService {
                             + account.getBalance().toPlainString());
         }
 
-        account.setBalance(
-                account.getBalance().subtract(actualPayment));
+        BigDecimal newAccountBalance =
+                account.getBalance().subtract(actualPayment);
+        account.setBalance(newAccountBalance);
         accountRepository.save(account);
+
+        // Bug fix: this debit used to stop here — account.balance moved,
+        // but nothing was ever written to the transaction ledger. Every
+        // other path that moves money (deposit/withdraw/transfer/EMI
+        // debit/FD funding) creates a Transaction row and publishes a
+        // balance-update event; this one was missed, which meant credit
+        // card bill payments were invisible in transaction history,
+        // didn't count toward the account's daily withdrawal limit,
+        // never pushed a live balance update over WebSocket, and
+        // couldn't be looked up/reversed via reverseTransaction (there
+        // was no row to find). Recorded as WITHDRAW so it correctly
+        // shows up alongside — and counts toward the running total for
+        // — other same-day withdrawals; it is not itself subject to the
+        // daily withdrawal cap here, since paying down debt isn't the
+        // same risk profile as a cash withdrawal.
+        String transactionRef = "CCBILL-" + UUID.randomUUID();
+        Transaction transaction = new Transaction();
+        transaction.setTransactionRef(transactionRef);
+        transaction.setAccount(account);
+        transaction.setType(TransactionType.WITHDRAW);
+        transaction.setAmount(actualPayment);
+        transaction.setBalanceAfter(newAccountBalance);
+        transaction.setStatus(TransactionStatus.SUCCESS);
+        transaction.setDescription(
+                "Credit card bill payment - card ending "
+                        + card.getMaskedNumber());
+        transactionRepository.save(transaction);
+
+        eventPublisher.publishTransactionCompleted(
+                account.getUserId(),
+                account.getAccountNumber(),
+                newAccountBalance,
+                actualPayment,
+                TransactionType.WITHDRAW,
+                transactionRef,
+                transaction.getDescription());
 
         BigDecimal newOutstanding = card.getOutstandingBill()
                 .subtract(actualPayment)
@@ -354,6 +547,7 @@ public class CardServiceImpl implements CardService {
                               String description) {
 
         Long userId = securityUtils.getCurrentUserId();
+        verifyLiveUserStatus(userId);
         Card card = getCardOwnedByUser(cardId, userId);
 
         if (card.getCardType() != CardType.CREDIT_CARD) {
@@ -378,6 +572,10 @@ public class CardServiceImpl implements CardService {
                 card.getAvailableCredit().subtract(amount));
         card.setOutstandingBill(
                 card.getOutstandingBill().add(amount));
+        // C6 fix: tracked independently so the next statement's
+        // "totalSpent" reflects only spend since the last statement,
+        // not the whole current outstanding balance.
+        card.setCycleSpend(card.getCycleSpend().add(amount));
 
         return mapToResponse(cardRepository.save(card));
     }
@@ -390,6 +588,7 @@ public class CardServiceImpl implements CardService {
     @Transactional(readOnly = true)
     public CvvResponse revealCvv(Long cardId) {
         Long userId = securityUtils.getCurrentUserId();
+        verifyLiveUserStatus(userId);
         Card card = getCardOwnedByUser(cardId, userId);
 
         String cvv = cvvService.derive(
@@ -398,14 +597,45 @@ public class CardServiceImpl implements CardService {
         return CvvResponse.builder().cvv(cvv).build();
     }
 
+    // L1 fix: max wrong guesses before this card's CVV verification
+    // locks out for a cooldown period. 1000 possible 3-digit values, so
+    // this needs to be tight enough that brute-forcing isn't practical.
+    private static final int MAX_CVV_ATTEMPTS = 5;
+    private static final long CVV_LOCKOUT_MINUTES = 15;
+
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public boolean verifyCvv(Long cardId, String submittedCvv) {
         Long userId = securityUtils.getCurrentUserId();
+        verifyLiveUserStatus(userId);
         Card card = getCardOwnedByUser(cardId, userId);
 
-        return cvvService.verify(
+        if (card.getCvvLockedUntil() != null
+                && card.getCvvLockedUntil().isAfter(java.time.LocalDateTime.now())) {
+            throw new CvvVerificationLockedException(
+                    "Too many incorrect CVV attempts. Please try again later.");
+        }
+
+        boolean valid = cvvService.verify(
                 card.getCardNumber(), card.getExpiryDate(), submittedCvv);
+
+        if (valid) {
+            // A correct guess proves the intended cardholder — no
+            // reason to keep counting past failures against them.
+            card.setCvvFailedAttempts(0);
+            card.setCvvLockedUntil(null);
+        } else {
+            int attempts = card.getCvvFailedAttempts() + 1;
+            card.setCvvFailedAttempts(attempts);
+            if (attempts >= MAX_CVV_ATTEMPTS) {
+                card.setCvvLockedUntil(
+                        java.time.LocalDateTime.now().plusMinutes(CVV_LOCKOUT_MINUTES));
+                card.setCvvFailedAttempts(0);
+            }
+        }
+        cardRepository.save(card);
+
+        return valid;
     }
 
     // ── Private helpers ───────────────────────────────────────────

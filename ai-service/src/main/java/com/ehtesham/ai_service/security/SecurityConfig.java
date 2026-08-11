@@ -32,10 +32,7 @@ public class SecurityConfig {
                 .sessionManagement(s -> s.sessionCreationPolicy(
                         SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        // Internal — called by other services only
-                        // not routed through gateway
                         .requestMatchers(
-                                "/api/v1/internal/**",
                                 "/actuator/health",
                                 "/actuator/info",
                                 // Swagger — allow in dev
@@ -43,8 +40,12 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/swagger-ui.html")
                         .permitAll()
-                        // Everything else needs authentication
-                        // (gateway validates JWT before forwarding)
+                        // "/api/v1/internal/**" no longer permitAll —
+                        // stale, predates the JWT-forwarding refactor
+                        // (ai-service doesn't expose any internal
+                        // endpoints of its own, so this was always a
+                        // no-op rule here, but cleaning it up for
+                        // consistency with the other services).
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(

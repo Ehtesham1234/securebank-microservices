@@ -6,6 +6,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -20,4 +21,12 @@ public interface LoanRepository
 
     boolean existsByUserIdAndStatusIn(
             Long userId, List<LoanStatus> statuses);
+
+    // Bug fix (loan-delinquency detection was dead code): drives
+    // LoanScheduler.markOverdueEmiPayments() directly off the Loan's own
+    // nextEmiDate rather than an EmiPayment "PENDING" row that nothing in
+    // the codebase ever actually created — see LoanScheduler for the full
+    // explanation.
+    List<Loan> findByStatusAndNextEmiDateBefore(
+            LoanStatus status, LocalDate date);
 }

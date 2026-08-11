@@ -43,6 +43,20 @@ public class KycDocument {
     @Column(name = "verified_by")
     private Long verifiedBy;  
 
+    // Bug fix: every other staff-decision entity in this codebase (Loan,
+    // Account, Card) uses optimistic locking to catch two staff members
+    // acting on the same record at once. This one didn't — two tellers
+    // hitting verify and reject on the same PENDING submission near-
+    // simultaneously could both pass the status==PENDING check before
+    // either commits, and whichever writes last silently wins with no
+    // error to the loser. @Version makes the second writer's commit fail
+    // with an ObjectOptimisticLockingFailureException instead (handled
+    // as a clean 409 — see GlobalExceptionHandler) so staff get an
+    // honest "someone else already acted on this" instead of a false
+    // "success".
+    @Version
+    private Long version;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

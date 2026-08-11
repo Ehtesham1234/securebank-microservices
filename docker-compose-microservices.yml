@@ -98,6 +98,9 @@ services:
       EUREKA_URL: http://eureka-server:8761/eureka/
       # RS256: gateway only verifies (fail-fast), never signs.
       JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
+      # CORS fix: this is now the only service that needs this — see
+      # ApiGatewayApplication's CorsWebFilter bean.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
       EUREKA_CLIENT_REGISTRY_FETCH_INTERVAL_SECONDS: "5"
     ports:
       - "8090:8090"
@@ -138,8 +141,7 @@ services:
       EUREKA_URL: http://eureka-server:8761/eureka/
       FILE_UPLOAD_PATH: /app/uploads
       EUREKA_INSTANCE_LEASE_RENEWAL_INTERVAL_IN_SECONDS: "5"
-      # M4 fix: real frontend origin(s) for CORS, comma-separated.
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      # CORS fix: moved to api-gateway — see that service's block below.
     # C1 fix: no longer published to the host. This service sits behind
     # api-gateway; nothing outside the Docker network needs to reach it
     # directly. For local, single-service debugging use
@@ -307,7 +309,7 @@ services:
       # the key in .env to AI_API_KEY (or change this line to
       # ${OPENROUTER_API_KEY}) or this will start with a blank API key.
       AI_API_KEY: ${AI_API_KEY}
-      AI_MODEL: ${AI_MODEL:-cohere/north-mini-code:free}
+      AI_MODEL: ${AI_MODEL:-google/gemini-2.5-flash:free}
       AI_BASE_URL: ${AI_BASE_URL:-https://openrouter.ai/api}
       EUREKA_INSTANCE_LEASE_RENEWAL_INTERVAL_IN_SECONDS: "5"
       JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}

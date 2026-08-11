@@ -38,4 +38,17 @@ public interface AccountService {
 
     void processCreditForLoan(Long loanId, Long accountId,
                               BigDecimal amount, String loanRef);
+
+    // C9 fix: called by the scheduler — pays out every ACTIVE Fixed
+    // Deposit whose maturityDate has arrived into the customer's
+    // SAVINGS account, then closes the FD account.
+    void processMaturedFixedDeposits();
+
+    // Bug fix: extracted so processMaturedFixedDeposits() can process
+    // each FD in its OWN transaction (via a self-injected proxy call —
+    // see the implementation) instead of one shared transaction/
+    // persistence context for the whole batch, where a flush triggered
+    // by a later FD (or by the final commit) could silently roll back
+    // FDs that already appeared to succeed earlier in the same run.
+    void payOutMaturedFixedDeposit(Long fdId);
 }

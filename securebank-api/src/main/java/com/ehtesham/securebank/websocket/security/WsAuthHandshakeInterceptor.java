@@ -1,6 +1,5 @@
 package com.ehtesham.securebank.websocket.security;
 
-import com.ehtesham.securebank.security.service.JwtService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -17,14 +16,24 @@ import java.util.Map;
 /**
  * Runs BEFORE the WebSocket/SockJS upgrade completes.
  *
- * The browser WebSocket API (and SockJS) cannot set an Authorization header
- * on the handshake request, so the access token is passed as a query param
- * instead: ws://host/ws?token=<accessToken>
+ * L5 fix: this used to pass the user's real access token as a query param
+ * (ws://host/ws?token=<accessToken>) — the browser WebSocket/SockJS API
+ * can't set an Authorization header on the handshake, so a query param was
+ * unavoidable, but that meant a token valid against every REST endpoint for
+ * up to jwt.expiration (15 min) could end up in access logs, proxy logs, or
+ * browser history.
  *
- * If the token is missing or invalid, the handshake is rejected outright
- * (401) — no connection is established at all. If valid, the userId is
- * stashed in the session attributes so WsPrincipalHandshakeHandler can bind
- * it as the STOMP session's Principal.
+ * Now the query param carries a short-lived, single-use ticket instead
+ * (ws://host/ws?ticket=<ticket>), minted by WsTicketController /
+ * consumed by WsTicketService. A leaked ticket is useless within 30
+ * seconds, and useless after the first handshake attempt either way — it
+ * isn't valid for anything else and can't be replayed.
+ *
+ * If the ticket is missing, unknown, or already used, the handshake is
+ * rejected outright (401) — no connection is established at all. If
+ * valid, the userId/email it resolves to are stashed in the session
+ * attributes so WsPrincipalHandshakeHandler can bind them as the STOMP
+ * session's Principal.
  */
 @Component
 public class WsAuthHandshakeInterceptor implements HandshakeInterceptor {
@@ -32,10 +41,10 @@ public class WsAuthHandshakeInterceptor implements HandshakeInterceptor {
     private static final Logger log =
             LoggerFactory.getLogger(WsAuthHandshakeInterceptor.class);
 
-    private final JwtService jwtService;
+    private final WsTicketService wsTicketService;
 
-    public WsAuthHandshakeInterceptor(JwtService jwtService) {
-        this.jwtService = jwtService;
+    public WsAuthHandshakeInterceptor(WsTicketService wsTicketService) {
+        this.wsTicketService = wsTicketService;
     }
 
     @Override
@@ -45,33 +54,27 @@ public class WsAuthHandshakeInterceptor implements HandshakeInterceptor {
             WebSocketHandler wsHandler,
             Map<String, Object> attributes) {
 
-        List<String> tokenParams = UriComponentsBuilder
+        List<String> ticketParams = UriComponentsBuilder
                 .fromUri(request.getURI())
                 .build()
                 .getQueryParams()
-                .get("token");
+                .get("ticket");
 
-        String token = (tokenParams == null || tokenParams.isEmpty())
+        String ticket = (ticketParams == null || ticketParams.isEmpty())
                 ? null
-                : tokenParams.get(0);
+                : ticketParams.get(0);
 
-        if (token == null || token.isBlank() || !jwtService.isTokenValid(token)) {
-            log.warn("Rejected WebSocket handshake — missing or invalid token");
+        WsTicketPayload payload = wsTicketService.consumeTicket(ticket);
+
+        if (payload == null || payload.userId() == null) {
+            log.warn("Rejected WebSocket handshake — missing, unknown, " +
+                    "or expired ticket");
             response.setStatusCode(HttpStatus.UNAUTHORIZED);
             return false;
         }
 
-        String userId = jwtService.extractClaim(
-                token, claims -> claims.get("userId", String.class));
-
-        if (userId == null || userId.isBlank()) {
-            log.warn("Rejected WebSocket handshake — token has no userId claim");
-            response.setStatusCode(HttpStatus.UNAUTHORIZED);
-            return false;
-        }
-
-        attributes.put("userId", userId);
-        attributes.put("email", jwtService.extractUsername(token));
+        attributes.put("userId", payload.userId().toString());
+        attributes.put("email", payload.email());
 
         return true;
     }

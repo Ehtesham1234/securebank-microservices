@@ -6,10 +6,16 @@ import com.ehtesham.account_service.account.repository.AccountRepository;
 import com.ehtesham.account_service.account.service.AccountService;
 import com.ehtesham.account_service.card.service.CardService;
 import com.ehtesham.account_service.exception.ResourceNotFoundException;
+import com.ehtesham.account_service.transaction.dto.EmiDebitResponse;
+import com.ehtesham.account_service.transaction.service.impl.MoneyMovementExecutor;
+import jakarta.validation.constraints.DecimalMin;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
 
 /**
  * Called service-to-service by kyc-service/loan-service on behalf of a
@@ -21,19 +27,23 @@ import org.springframework.web.bind.annotation.*;
  */
 @RestController
 @RequestMapping("/api/v1/internal")
+@Validated
 public class InternalAccountController {
 
     private final AccountService accountService;
     private final CardService cardService;
     private final AccountRepository accountRepository;
+    private final MoneyMovementExecutor moneyMovementExecutor;
 
     public InternalAccountController(
             AccountService accountService,
             CardService cardService,
-            AccountRepository accountRepository) {
+            AccountRepository accountRepository,
+            MoneyMovementExecutor moneyMovementExecutor) {
         this.accountService = accountService;
         this.cardService = cardService;
         this.accountRepository = accountRepository;
+        this.moneyMovementExecutor = moneyMovementExecutor;
     }
 
     /**
@@ -85,5 +95,30 @@ public class InternalAccountController {
         return ResponseEntity.ok(
                 accountService.validateAccount(
                         accountId, userId));
+    }
+
+    /**
+     * C4 fix: called synchronously by loan-service's payEmi(), BEFORE it
+     * changes any of its own loan/EMI records — so a failed debit here
+     * (insufficient funds, frozen account, etc.) means the loan side
+     * never gets modified either. Triggered by the loan applicant's own
+     * request, same self-or-staff rule as validateAccount above.
+     */
+    @PostMapping("/accounts/{accountId}/debit-for-emi")
+    @PreAuthorize("hasAnyAuthority('ROLE_TELLER','ROLE_ADMIN') or #userId == authentication.details")
+    public ResponseEntity<EmiDebitResponse> debitForEmi(
+            @PathVariable Long accountId,
+            @RequestParam Long userId,
+            @RequestParam Long loanId,
+            @RequestParam Integer emiNumber,
+            @RequestParam @DecimalMin(value = "0.01", message = "Amount must be positive") BigDecimal amount,
+            @RequestParam(required = false) String description) {
+
+        EmiDebitResponse response = moneyMovementExecutor.doEmiDebit(
+                accountId, userId, loanId, emiNumber, amount,
+                description != null ? description
+                        : "EMI payment for loan " + loanId);
+
+        return ResponseEntity.ok(response);
     }
 }

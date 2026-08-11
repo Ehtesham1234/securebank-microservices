@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -56,8 +57,14 @@ public class AccountController {
     }
 
     // ── ADMIN endpoints ───────────────────────────────────────────
+    // C1 fix: these had NO authorization check at all — any
+    // authenticated customer could list every account in the bank and
+    // freeze/unfreeze/close anyone's account. CardController and
+    // TransactionController in this same service already do this
+    // correctly; this file just didn't.
 
     @GetMapping("/admin/accounts")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<List<AccountResponse>>> getAllAccounts() {
         return ResponseEntity.ok(ApiResponse.success(
                 "Fetched all accounts",
@@ -66,6 +73,7 @@ public class AccountController {
     }
 
     @PostMapping("/admin/accounts/{id}/freeze")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<AccountResponse>> freezeAccount(
             @PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(
@@ -75,6 +83,7 @@ public class AccountController {
     }
 
     @PostMapping("/admin/accounts/{id}/unfreeze")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<AccountResponse>> unfreezeAccount(
             @PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(
@@ -84,6 +93,7 @@ public class AccountController {
     }
 
     @PostMapping("/admin/accounts/{id}/close")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<AccountResponse>> closeAccount(
             @PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(

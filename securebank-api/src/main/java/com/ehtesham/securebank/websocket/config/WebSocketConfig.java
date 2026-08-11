@@ -59,11 +59,15 @@ public class WebSocketConfig
         // The URL clients connect to initially. SockJS provides a fallback
         // for browsers that don't support WebSocket natively.
         //
-        // WsAuthHandshakeInterceptor validates a JWT (passed as a
-        // ?token=... query param — browsers can't set custom headers on a
-        // WebSocket handshake) before the upgrade is allowed, and
-        // WsPrincipalHandshakeHandler binds the resulting userId as this
-        // session's Principal so convertAndSendToUser(...) can target it.
+        // L5 fix: WsAuthHandshakeInterceptor validates a short-lived,
+        // single-use ticket (passed as a ?ticket=... query param —
+        // browsers can't set custom headers on a WebSocket handshake, so
+        // a query param is unavoidable). The client gets that ticket by
+        // calling POST /api/v1/ws/ticket first, over a normal
+        // authenticated HTTPS request — see WsTicketController /
+        // WsTicketService. WsPrincipalHandshakeHandler then binds the
+        // resulting userId as this session's Principal so
+        // convertAndSendToUser(...) can target it.
         registry.addEndpoint("/ws")
                 .setAllowedOrigins(ALLOWED_ORIGINS.toArray(new String[0]))
                 .addInterceptors(wsAuthHandshakeInterceptor)

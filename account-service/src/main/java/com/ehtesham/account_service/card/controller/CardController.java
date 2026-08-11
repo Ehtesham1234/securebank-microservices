@@ -21,6 +21,10 @@ import java.util.List;
 @RequestMapping("/api/v1/cards")
 @Tag(name = "Cards",
         description = "Debit and credit card management")
+// H1 fix: @Validated is required for @RequestParam/@PathVariable
+// constraints (like @DecimalMin below) to be enforced at all — without
+// it, Spring silently ignores them on method parameters.
+@org.springframework.validation.annotation.Validated
 public class CardController {
 
     private final CardService cardService;
@@ -62,10 +66,12 @@ public class CardController {
     @PreAuthorize("hasAuthority('ROLE_CUSTOMER')")
     public ResponseEntity<ApiResponse<CardResponse>> payCreditCardBill(
             @PathVariable Long cardId,
-            @RequestParam BigDecimal amount) {
+            @RequestParam @jakarta.validation.constraints.DecimalMin(
+                    value = "0.01", message = "Amount must be positive") BigDecimal amount,
+            @RequestHeader("Idempotency-Key") String idempotencyKey) {
         return ResponseEntity.ok(ApiResponse.success(
                 "Credit card bill paid successfully",
-                cardService.payCreditCardBill(cardId, amount)
+                cardService.payCreditCardBill(cardId, amount, idempotencyKey)
         ));
     }
 
@@ -83,7 +89,8 @@ public class CardController {
     @PreAuthorize("hasAuthority('ROLE_CUSTOMER')")
     public ResponseEntity<ApiResponse<CardResponse>> spend(
             @PathVariable Long cardId,
-            @RequestParam BigDecimal amount,
+            @RequestParam @jakarta.validation.constraints.DecimalMin(
+                    value = "0.01", message = "Amount must be positive") BigDecimal amount,
             @RequestParam(required = false) String description) {
         return ResponseEntity.ok(ApiResponse.success(
                 "Card spend recorded",

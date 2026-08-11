@@ -33,7 +33,6 @@ public class SecurityConfig {
                         SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
-                                "/api/v1/internal/**",
                                 "/actuator/health",
                                 "/actuator/info",
                                 "/actuator/circuitbreakers",
@@ -42,6 +41,17 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/swagger-ui.html")
                         .permitAll()
+                        // C2-systemic fix: coarse defense-in-depth net —
+                        // catches a future missed @PreAuthorize the same
+                        // way this one was missed on LoanController.
+                        .requestMatchers("/api/v1/admin/**")
+                        .hasAuthority("ROLE_ADMIN")
+                        .requestMatchers(
+                                "/api/v1/loans/*/approve",
+                                "/api/v1/loans/*/reject")
+                        .hasAnyAuthority("ROLE_TELLER", "ROLE_ADMIN")
+                        // "/api/v1/internal/**" no longer permitAll —
+                        // stale, predates the JWT-forwarding refactor.
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(

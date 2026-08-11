@@ -30,11 +30,16 @@ public class AuthController {
     public ResponseEntity<ApiResponse<UserResponse>> register(
             @Valid @RequestBody RegisterRequest request,
             HttpServletRequest httpRequest) {
-        // Use real client IP, not gateway IP
-//        String clientIp = getClientIp(httpRequest);
-//        UserResponse response = authService.register(
-//                request, clientIp);
-        String clientIp = httpRequest.getRemoteAddr();
+        // Bug fix: this used to call httpRequest.getRemoteAddr()
+        // directly — since every request is proxied through
+        // api-gateway, that always resolves to the gateway's own
+        // address, not the real client's. That turned the "3
+        // registrations/hour" rate limit into one shared bucket for the
+        // entire bank: 3 signups from anywhere locked out every other
+        // new user for the next hour. ClientIpUtils.getClientIp() (used
+        // correctly by login() already) parses X-Forwarded-For to get
+        // the real client IP instead.
+        String clientIp = com.ehtesham.securebank.security.util.ClientIpUtils.getClientIp();
 
         UserResponse user = authService.register(request, clientIp);
 
@@ -111,17 +116,5 @@ public class AuthController {
 
         return ResponseEntity.ok(
                 ApiResponse.success("Email verified successfully"));
-    }
-
-    // Add this helper method to AuthController:
-    private String getClientIp(HttpServletRequest request) {
-        // Gateway forwards real client IP in this header
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            // X-Forwarded-For can be comma-separated list
-            // first IP is the original client
-            return forwarded.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
     }
 }

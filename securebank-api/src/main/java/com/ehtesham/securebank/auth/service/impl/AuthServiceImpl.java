@@ -166,7 +166,7 @@ public class AuthServiceImpl implements AuthService {
 
         boolean allowed = rateLimiterService.tryConsume(
                 rateLimitKey,
-                10,                          // 5 attempts
+                10,                          // 10 attempts
                 Duration.ofMinutes(15));    // per 15 minutes
 
         if (!allowed) {
@@ -275,10 +275,12 @@ public class AuthServiceImpl implements AuthService {
                         new InvalidCredentialsException(
                                 "Invalid email or password"));
 
-        String accessToken = jwtService.generateToken(
-                user.getEmail(), "ROLE_" + user.getRole().name() ,user.getId() , user.getUserStatus());
-
         RefreshToken refreshToken = refreshTokenService.createRefreshToken(user);
+
+        String accessToken = jwtService.generateToken(
+                user.getEmail(), "ROLE_" + user.getRole().name(),
+                user.getId(), user.getUserStatus(),
+                refreshToken.getTokenFamily());
 
         return new AuthResponse(
                 accessToken, refreshToken.getToken(),
@@ -294,7 +296,10 @@ public class AuthServiceImpl implements AuthService {
 
         String newAccessToken = jwtService.generateToken(
                 newRefreshToken.getUser().getEmail(),
-                "ROLE_" + newRefreshToken.getUser().getRole().name() ,newRefreshToken.getUser().getId(),newRefreshToken.getUser().getUserStatus());
+                "ROLE_" + newRefreshToken.getUser().getRole().name(),
+                newRefreshToken.getUser().getId(),
+                newRefreshToken.getUser().getUserStatus(),
+                newRefreshToken.getTokenFamily());
 
         return new AuthResponse(
                 newAccessToken,
@@ -466,9 +471,15 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public List<ActiveSessionResponse> getActiveSessions(Long userId) {
+        return getActiveSessions(userId, null);
+    }
+
+    @Override
+    public List<ActiveSessionResponse> getActiveSessions(
+            Long userId, String currentTokenFamily) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        return refreshTokenService.getActiveSessions(user, null);
+        return refreshTokenService.getActiveSessions(user, currentTokenFamily);
     }
 
     @Override

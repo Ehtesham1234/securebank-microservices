@@ -32,8 +32,14 @@ public class AccountSecurityController {
     public ResponseEntity<ApiResponse<List<ActiveSessionResponse>>> getActiveSessions(
             @AuthenticationPrincipal CustomUserPrincipal principal) {
 
+        // Bug fix: used to always pass null for currentTokenFamily
+        // (there was no wiring to get it from anywhere), so every
+        // session in the response permanently showed currentSession as
+        // false. principal.getTokenFamily() is now populated from the
+        // access token's tokenFamily claim by JwtAuthenticationFilter.
         List<ActiveSessionResponse> sessions =
-                authService.getActiveSessions(principal.getUserId());
+                authService.getActiveSessions(
+                        principal.getUserId(), principal.getTokenFamily());
 
         return ResponseEntity.ok(
                 ApiResponse.success("Active sessions retrieved", sessions));

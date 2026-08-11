@@ -1,5 +1,6 @@
 package com.ehtesham.account_service.account.entity;
 
+import com.ehtesham.account_service.account.enums.FdStatus;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -40,6 +41,12 @@ public class FixedDepositDetails {
     @Column(name = "maturity_amount",
             nullable = false, precision = 19, scale = 4)
     private BigDecimal maturityAmount;
+
+    // C9 fix: see FdStatus — lets processMaturedFixedDeposits() find
+    // ACTIVE, past-due FDs and never touch a MATURED one again.
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private FdStatus status = FdStatus.ACTIVE;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

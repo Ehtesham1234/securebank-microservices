@@ -17,7 +17,6 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.web.cors.CorsConfigurationSource;
 
 @EnableMethodSecurity
 @Configuration
@@ -26,17 +25,14 @@ public class SecurityConfig {
     private final CustomUserDetailsService userDetailsService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final UserStatusFilter userStatusFilter;
-    private final CorsConfigurationSource corsConfigurationSource;
 
     public SecurityConfig(
             CustomUserDetailsService userDetailsService,
             JwtAuthenticationFilter jwtAuthenticationFilter,
-            UserStatusFilter userStatusFilter,
-            CorsConfigurationSource corsConfigurationSource) {
+            UserStatusFilter userStatusFilter) {
         this.userDetailsService = userDetailsService;
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.userStatusFilter = userStatusFilter;
-        this.corsConfigurationSource = corsConfigurationSource;
     }
 
     @Bean
@@ -44,8 +40,15 @@ public class SecurityConfig {
             HttpSecurity http) throws Exception {
 
         http
-                .cors(cors -> cors.configurationSource(
-                        corsConfigurationSource))
+                // CORS fix: no longer handled here — api-gateway is the
+                // only thing a browser ever talks to (this service's
+                // port isn't published), and its CorsWebFilter already
+                // covers every route to every service. This service
+                // used to ALSO set Access-Control-Allow-Origin on top of
+                // the gateway's, which produced a response with that
+                // header listed twice — browsers correctly reject that
+                // outright. Don't re-add .cors(...) here without
+                // removing it from the gateway first.
                 .csrf(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)

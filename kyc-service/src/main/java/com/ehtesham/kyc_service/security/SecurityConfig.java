@@ -33,7 +33,6 @@ public class SecurityConfig {
                         SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
-                                "/api/v1/internal/**",
                                 "/actuator/health",
                                 "/actuator/info",
                                 // Swagger — allow in dev
@@ -41,6 +40,15 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/swagger-ui.html")
                         .permitAll()
+                        // Defense-in-depth net (every /teller/** method
+                        // here already has correct @PreAuthorize — this
+                        // just backstops a future one being missed, the
+                        // same way it happened on AccountController and
+                        // LoanController in other services).
+                        .requestMatchers("/api/v1/teller/**")
+                        .hasAnyAuthority("ROLE_TELLER", "ROLE_ADMIN")
+                        // "/api/v1/internal/**" no longer permitAll —
+                        // stale, predates the JWT-forwarding refactor.
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(

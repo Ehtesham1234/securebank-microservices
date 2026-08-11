@@ -15,4 +15,10 @@ public interface CreditCardStatementRepository
 
     Optional<CreditCardStatement> findTopByCardAndPaidFalseOrderByDueDateAsc(
             Card card);
+
+    // C6 fix: this statement's openingBalance is the PREVIOUS statement's
+    // closingBalance — a plain historical fact, not something to
+    // reconstruct via arithmetic (see generateMonthlyStatements()).
+    Optional<CreditCardStatement> findTopByCardOrderByCreatedAtDesc(
+            Card card);
 }

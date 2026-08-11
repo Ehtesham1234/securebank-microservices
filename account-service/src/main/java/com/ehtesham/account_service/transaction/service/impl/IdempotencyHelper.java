@@ -116,7 +116,7 @@ public class IdempotencyHelper {
             log.error("Idempotency claim for key={} userId={} op={} " +
                             "failed but no existing row was found",
                     idempotencyKey, userId, operationType);
-            throw new IllegalStateException(
+            throw new com.ehtesham.account_service.exception.IdempotencyStateException(
                     "Could not resolve idempotency key state");
         }
 

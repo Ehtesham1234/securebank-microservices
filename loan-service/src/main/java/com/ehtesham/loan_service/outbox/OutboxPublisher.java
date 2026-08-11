@@ -40,10 +40,20 @@ public class OutboxPublisher {
 
         for (OutboxEvent event : pending) {
             try {
+                // Bug fix: kafkaTemplate.send() is async — it only
+                // queues the record. The old code marked the row
+                // published=true right after calling it without checking
+                // whether the send actually succeeded, so a transient
+                // broker failure after send() returns would silently be
+                // recorded as delivered and never retried. Blocking on
+                // the future (with a bounded timeout) means a
+                // failed/timed-out send throws, is caught below, and the
+                // row is correctly left unpublished for the next cycle.
                 kafkaTemplate.send(
-                        event.getTopic(),
-                        event.getAggregateId(),
-                        event.getPayload());
+                                event.getTopic(),
+                                event.getAggregateId(),
+                                event.getPayload())
+                        .get(5, java.util.concurrent.TimeUnit.SECONDS);
 
                 event.setPublished(true);
                 event.setPublishedAt(LocalDateTime.now());

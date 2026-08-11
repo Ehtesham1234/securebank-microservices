@@ -15,6 +15,12 @@ public class CustomUserPrincipal extends User {
     private final UserStatus userStatus;
     private final boolean accountNonLocked;
     private final boolean enabled;
+    // Bug fix: carries the access token's tokenFamily claim (if present)
+    // so AccountSecurityController.getActiveSessions() can identify
+    // which listed session is "this one" — previously there was no
+    // wiring for this at all.
+    private final String tokenFamily;
+
     public CustomUserPrincipal(
             Long userId,
             String email,
@@ -23,6 +29,19 @@ public class CustomUserPrincipal extends User {
             LocalDateTime lockedUntil,
             boolean emailVerified,
             Collection<? extends GrantedAuthority> authorities) {
+        this(userId, email, password, userStatus, lockedUntil,
+                emailVerified, authorities, null);
+    }
+
+    public CustomUserPrincipal(
+            Long userId,
+            String email,
+            String password,
+            UserStatus userStatus,
+            LocalDateTime lockedUntil,
+            boolean emailVerified,
+            Collection<? extends GrantedAuthority> authorities,
+            String tokenFamily) {
         super(email, password, authorities);
         this.userId = userId;
         this.userStatus = userStatus;
@@ -34,6 +53,7 @@ public class CustomUserPrincipal extends User {
         this.enabled = emailVerified
                 && userStatus != UserStatus.SUSPENDED
                 && userStatus != UserStatus.CLOSED;
+        this.tokenFamily = tokenFamily;
     }
     @Override
     public boolean isAccountNonLocked() {

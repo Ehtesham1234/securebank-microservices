@@ -11,6 +11,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/v1")
@@ -57,7 +58,12 @@ public class LoanController {
         return ResponseEntity.ok(ApiResponse.success("Fetched loan details", loan));
     }
 
+    // C2 fix: no authorization at all before — any customer could
+    // approve/reject their own or anyone else's loan application. The
+    // Kafka saga triggered on approval genuinely credits the account,
+    // so this was a path to real unauthorized fund creation.
     @PostMapping("/loans/{id}/approve")
+    @PreAuthorize("hasAnyAuthority('ROLE_TELLER','ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<LoanResponse>> approve(
             @PathVariable Long id,
             @Valid @RequestBody LoanReviewRequest request,
@@ -68,6 +74,7 @@ public class LoanController {
     }
 
     @PostMapping("/loans/{id}/reject")
+    @PreAuthorize("hasAnyAuthority('ROLE_TELLER','ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<LoanResponse>> reject(
             @PathVariable Long id,
             @Valid @RequestBody LoanReviewRequest request,
@@ -88,6 +95,7 @@ public class LoanController {
     }
 
     @GetMapping("/admin/loans")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<Page<LoanResponse>>> getAllLoans(
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC)
             Pageable pageable) {
@@ -97,6 +105,7 @@ public class LoanController {
     }
 
     @GetMapping("/admin/loans/status/{status}")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<Page<LoanResponse>>> getByStatus(
             @PathVariable String status,
             @PageableDefault(size = 20) Pageable pageable) {
