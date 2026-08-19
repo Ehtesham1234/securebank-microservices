@@ -77,9 +77,10 @@ public class TransactionController {
     @GetMapping("/admin/transactions")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<Page<TransactionResponse>>> allTransactions(
+            @RequestParam(required = false) Long userId,
             @PageableDefault(size = 20) Pageable pageable) {
 
-        Page<TransactionResponse> transactions = transactionService.getAllTransactions(pageable);
+        Page<TransactionResponse> transactions = transactionService.getAllTransactions(userId, pageable);
         return ResponseEntity.ok(ApiResponse.success("All transactions retrieved", transactions));
     }
 

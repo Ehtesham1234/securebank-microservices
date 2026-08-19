@@ -22,7 +22,7 @@ public interface AccountService {
 
     AccountResponse getAccountById(Long id, Long userId);
 
-    List<AccountResponse> getAllAccounts();
+    List<AccountResponse> getAllAccounts(Long userId);
 
     AccountResponse freezeAccount(Long id);
 

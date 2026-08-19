@@ -65,10 +65,11 @@ public class AccountController {
 
     @GetMapping("/admin/accounts")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<List<AccountResponse>>> getAllAccounts() {
+    public ResponseEntity<ApiResponse<List<AccountResponse>>> getAllAccounts(
+            @RequestParam(required = false) Long userId) {
         return ResponseEntity.ok(ApiResponse.success(
                 "Fetched all accounts",
-                accountService.getAllAccounts()
+                accountService.getAllAccounts(userId)
         ));
     }
 

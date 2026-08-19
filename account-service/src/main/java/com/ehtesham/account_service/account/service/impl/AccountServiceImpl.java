@@ -223,9 +223,15 @@ public class AccountServiceImpl implements AccountService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<AccountResponse> getAllAccounts() {
-        return accountRepository.findAll()
-                .stream()
+    /** userId is optional — null returns every account bank-wide, same
+     *  as before; passing it scopes the list to one customer, backed by
+     *  the same findByUserId the customer-facing "my accounts" endpoint
+     *  already uses. */
+    public List<AccountResponse> getAllAccounts(Long userId) {
+        List<Account> accounts = (userId != null)
+                ? accountRepository.findByUserId(userId)
+                : accountRepository.findAll();
+        return accounts.stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }

@@ -23,7 +23,7 @@ public interface TransactionService {
     Page<TransactionResponse> getTransactionHistory(
             Long accountId, Pageable pageable);
 
-    Page<TransactionResponse> getAllTransactions(Pageable pageable);
+    Page<TransactionResponse> getAllTransactions(Long userId, Pageable pageable);
 
     // Removed: String adminEmail param
     TransactionResponse reverseTransaction(Long transactionId);

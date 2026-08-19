@@ -21,6 +21,7 @@ import com.ehtesham.securebank.user.repository.UserRepository;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentMatchers;
+import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -37,7 +38,7 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("AuthService Tests")
-class AuthServiceTest {
+class AuthServiceImplTest {
 
     @Mock private UserRepository userRepository;
     @Mock private PasswordEncoder passwordEncoder;
@@ -49,23 +50,13 @@ class AuthServiceTest {
     @Mock private RateLimiterService rateLimiterService;
     @Mock private LoginAttemptService loginAttemptService;
 
-    private AuthServiceImpl authService;
+    @InjectMocks
+    private AuthServiceImpl authService;  // Mocks auto-injected here
+
     private User testUser;
 
     @BeforeEach
     void setUp() {
-        authService = new AuthServiceImpl(
-                userRepository,
-                passwordEncoder,
-                jwtService,
-                refreshTokenService,
-                otpService,
-//                emailService,
-                notificationPublisher,
-                authenticationManager,
-                rateLimiterService,
-                loginAttemptService);
-
         testUser = new User();
         testUser.setId(1L);
         testUser.setEmail("test@securebank.com");

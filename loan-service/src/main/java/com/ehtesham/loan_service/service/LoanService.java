@@ -20,7 +20,7 @@ public interface LoanService {
             Long userId, Pageable pageable);
     public LoanResponse getLoanDetails(Long loanId, Long userId,
                                        boolean isStaff);
-    public Page<LoanResponse> getAllLoans(Pageable pageable);
+    public Page<LoanResponse> getAllLoans(Long userId, Pageable pageable);
     public Page<LoanResponse> getLoansByStatus(
             String status, Pageable pageable);
     public void activateLoan(Long loanId, String transactionRef);

@@ -97,10 +97,11 @@ public class LoanController {
     @GetMapping("/admin/loans")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<Page<LoanResponse>>> getAllLoans(
+            @RequestParam(required = false) Long userId,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC)
             Pageable pageable) {
 
-        Page<LoanResponse> loans = loanService.getAllLoans(pageable);
+        Page<LoanResponse> loans = loanService.getAllLoans(userId, pageable);
         return ResponseEntity.ok(ApiResponse.success("Fetched all loans", loans));
     }
 

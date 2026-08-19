@@ -452,9 +452,11 @@ public class LoanServiceImpl implements LoanService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<LoanResponse> getAllLoans(Pageable pageable) {
-        return loanRepository.findAll(pageable)
-                .map(this::mapToResponse);
+    public Page<LoanResponse> getAllLoans(Long userId, Pageable pageable) {
+        Page<Loan> loans = (userId != null)
+                ? loanRepository.findByUserId(userId, pageable)
+                : loanRepository.findAll(pageable);
+        return loans.map(this::mapToResponse);
     }
 
     @Override

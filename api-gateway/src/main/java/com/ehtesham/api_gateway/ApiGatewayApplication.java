@@ -80,7 +80,8 @@ public class ApiGatewayApplication {
 		config.setAllowedHeaders(List.of(
 				"Authorization",
 				"Content-Type",
-				"Idempotency-Key"
+				"Idempotency-Key",
+				"X-Account-Id"
 		));
 
 		config.setAllowCredentials(true);

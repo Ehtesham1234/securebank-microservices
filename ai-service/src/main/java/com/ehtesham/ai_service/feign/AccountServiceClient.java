@@ -8,6 +8,7 @@ import java.util.List;
 
 @FeignClient(
         name = "account-service",
+        contextId = "accountServiceClient",
         configuration = IdentityForwardingFeignConfig.class,
         fallback = AccountServiceClientFallback.class)
 public interface AccountServiceClient {

@@ -50,4 +50,7 @@ public interface TransactionRepository
             @Param("accountId") Long accountId,
             @Param("type") TransactionType type,
             @Param("startOfDay") LocalDateTime startOfDay);
+
+    @Query("SELECT t FROM Transaction t WHERE (:userId IS NULL OR t.account.userId = :userId)")
+    Page<Transaction> findAllForAdmin(@Param("userId") Long userId, Pageable pageable);
 }

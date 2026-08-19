@@ -18,6 +18,7 @@ public class TransactionResponse {
     private Long id;
     private String transactionRef;
     private String accountNumber;
+    private Long userId;
     private TransactionType type;
     private BigDecimal amount;
     private BigDecimal balanceAfter;

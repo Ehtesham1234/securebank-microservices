@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 // every call here was falling straight to the circuit breaker fallback.
 @FeignClient(
         name = "account-service",
+        contextId = "transactionServiceClient",
         configuration = IdentityForwardingFeignConfig.class,
         fallback = TransactionServiceClientFallback.class)
 public interface TransactionServiceClient {

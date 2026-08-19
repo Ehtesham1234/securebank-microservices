@@ -119,8 +119,8 @@ public class TransactionServiceImpl implements TransactionService {
     @Override
     @Transactional(readOnly = true)
     public Page<TransactionResponse> getAllTransactions(
-            Pageable pageable) {
-        return transactionRepository.findAll(pageable)
+            Long userId, Pageable pageable) {
+        return transactionRepository.findAllForAdmin(userId, pageable)
                 .map(this::mapToResponse);
     }
 
@@ -233,6 +233,7 @@ public class TransactionServiceImpl implements TransactionService {
                 .transactionRef(t.getTransactionRef())
                 .accountNumber(t.getAccount()
                         .getAccountNumber())
+                .userId(t.getAccount().getUserId())
                 .type(t.getType())
                 .amount(t.getAmount())
                 .balanceAfter(t.getBalanceAfter())
