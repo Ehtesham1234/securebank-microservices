@@ -7,6 +7,8 @@ import com.ehtesham.account_service.account.entity.FixedDepositDetails;
 import com.ehtesham.account_service.account.enums.AccountStatus;
 import com.ehtesham.account_service.account.enums.AccountType;
 import com.ehtesham.account_service.account.enums.FdStatus;
+import com.ehtesham.account_service.client.UserSearchClient;
+import com.ehtesham.account_service.common.AdminSearchSupport;
 import com.ehtesham.account_service.exception.AccountNotFoundException;
 import com.ehtesham.account_service.exception.AccountOperationException;
 import com.ehtesham.account_service.exception.InsufficientFundsException;
@@ -23,6 +25,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -56,20 +59,21 @@ public class AccountServiceImpl implements AccountService {
     // pattern RefreshTokenServiceImpl uses for revokeTokenFamily() and
     // CardServiceImpl now uses for generateStatementForCard().
     private final AccountService self;
-
+    private final UserSearchClient userSearchClient;
     public AccountServiceImpl(
             AccountRepository accountRepository,
             FixedDepositDetailsRepository fdRepository,
             OutboxRepository outboxRepository,
             ObjectMapper objectMapper,
             TransactionRepository transactionRepository,
-            @org.springframework.context.annotation.Lazy AccountService self) {
+            @org.springframework.context.annotation.Lazy AccountService self, UserSearchClient userSearchClient) {
         this.accountRepository = accountRepository;
         this.fdRepository = fdRepository;
         this.outboxRepository = outboxRepository;
         this.objectMapper = objectMapper;
         this.transactionRepository = transactionRepository;
         this.self = self;
+        this.userSearchClient = userSearchClient;
     }
 
     @Override
@@ -221,20 +225,20 @@ public class AccountServiceImpl implements AccountService {
         return mapToResponse(account);
     }
 
-    @Override
-    @Transactional(readOnly = true)
-    /** userId is optional — null returns every account bank-wide, same
-     *  as before; passing it scopes the list to one customer, backed by
-     *  the same findByUserId the customer-facing "my accounts" endpoint
-     *  already uses. */
-    public List<AccountResponse> getAllAccounts(Long userId) {
-        List<Account> accounts = (userId != null)
-                ? accountRepository.findByUserId(userId)
-                : accountRepository.findAll();
-        return accounts.stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
-    }
+//    @Override
+//    @Transactional(readOnly = true)
+//    /** userId is optional — null returns every account bank-wide, same
+//     *  as before; passing it scopes the list to one customer, backed by
+//     *  the same findByUserId the customer-facing "my accounts" endpoint
+//     *  already uses. */
+//    public List<AccountResponse> getAllAccounts(Long userId) {
+//        List<Account> accounts = (userId != null)
+//                ? accountRepository.findByUserId(userId)
+//                : accountRepository.findAll();
+//        return accounts.stream()
+//                .map(this::mapToResponse)
+//                .collect(Collectors.toList());
+//    }
 
     @Override
     @Transactional
@@ -677,5 +681,27 @@ public class AccountServiceImpl implements AccountService {
                 .fixedDepositDetails(fdResponse)
                 .createdAt(account.getCreatedAt())
                 .build();
+    }
+
+    public List<AccountResponse> getAllAccounts(
+            Long userId, Long accountId, String accountNumber, String search) {
+        List<Account> accounts;
+        if (accountId != null) {
+            accounts = accountRepository.findById(accountId)
+                    .map(List::of)
+                    .orElseGet(List::of);
+        } else if (userId != null) {
+            accounts = accountRepository.findByUserId(userId);
+        } else if (accountNumber != null && !accountNumber.isBlank()) {
+            accounts = accountRepository.findByAccountNumberContainingIgnoreCase(accountNumber.trim());
+        } else if (search != null && !search.isBlank()) {
+            List<Long> userIds = userSearchClient.searchUserIds(search.trim());
+            accounts = userIds.isEmpty() ? List.of() : accountRepository.findByUserIdIn(userIds);
+        } else {
+            accounts = accountRepository.findAll();
+        }
+        return accounts.stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
     }
 }

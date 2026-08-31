@@ -19,6 +19,7 @@ import com.ehtesham.account_service.card.repository.CreditCardStatementRepositor
 import com.ehtesham.account_service.card.security.CvvService;
 import com.ehtesham.account_service.card.service.CardService;
 import com.ehtesham.account_service.client.InternalUserStatusResponse;
+import com.ehtesham.account_service.client.UserSearchClient;
 import com.ehtesham.account_service.client.UserStatusCheckUnavailableException;
 import com.ehtesham.account_service.client.UserStatusClient;
 import com.ehtesham.account_service.exception.AccountOperationException;
@@ -32,6 +33,7 @@ import com.ehtesham.account_service.transaction.enums.TransactionStatus;
 import com.ehtesham.account_service.transaction.enums.TransactionType;
 import com.ehtesham.account_service.transaction.publisher.TransactionEventPublisher;
 import com.ehtesham.account_service.transaction.repository.TransactionRepository;
+import com.ehtesham.account_service.transaction.service.impl.IdempotencyHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -55,6 +57,8 @@ public class CardServiceImpl implements CardService {
     private static final BigDecimal MINIMUM_DUE_PERCENTAGE =
             new BigDecimal("0.05");
     private static final int PAYMENT_DUE_DAYS = 15;
+    private static final int MAX_CVV_ATTEMPTS = 5;
+    private static final long CVV_LOCKOUT_MINUTES = 15;
 
     // H2 fix: java.util.Random is a predictable PRNG — not appropriate for
     // generating card numbers, which are sensitive identifiers.
@@ -68,8 +72,8 @@ public class CardServiceImpl implements CardService {
     private final TransactionRepository transactionRepository;
     private final TransactionEventPublisher eventPublisher;
     private final UserStatusClient userStatusClient;
-    private final com.ehtesham.account_service.transaction.service.impl.IdempotencyHelper idempotencyHelper;
-
+    private final IdempotencyHelper idempotencyHelper;
+    private final UserSearchClient userSearchClient;
     // Bug fix: self-injection (via a @Lazy proxy) so
     // generateMonthlyStatements() can call generateStatementForCard()
     // THROUGH Spring's proxy — needed for its
@@ -90,7 +94,7 @@ public class CardServiceImpl implements CardService {
             TransactionRepository transactionRepository,
             TransactionEventPublisher eventPublisher,
             UserStatusClient userStatusClient,
-            com.ehtesham.account_service.transaction.service.impl.IdempotencyHelper idempotencyHelper,
+            com.ehtesham.account_service.transaction.service.impl.IdempotencyHelper idempotencyHelper, UserSearchClient userSearchClient,
             @org.springframework.context.annotation.Lazy CardService self) {
         this.cardRepository = cardRepository;
         this.statementRepository = statementRepository;
@@ -101,6 +105,7 @@ public class CardServiceImpl implements CardService {
         this.eventPublisher = eventPublisher;
         this.userStatusClient = userStatusClient;
         this.idempotencyHelper = idempotencyHelper;
+        this.userSearchClient = userSearchClient;
         this.self = self;
     }
 
@@ -600,8 +605,6 @@ public class CardServiceImpl implements CardService {
     // L1 fix: max wrong guesses before this card's CVV verification
     // locks out for a cooldown period. 1000 possible 3-digit values, so
     // this needs to be tight enough that brute-forcing isn't practical.
-    private static final int MAX_CVV_ATTEMPTS = 5;
-    private static final long CVV_LOCKOUT_MINUTES = 15;
 
     @Override
     @Transactional
@@ -637,7 +640,63 @@ public class CardServiceImpl implements CardService {
 
         return valid;
     }
+    @Override
+    @Transactional
+    public List<CardResponse> getAllCards(
+            Long userId, Long cardId, String maskedNumber, String search) {
+        List<Card> cards;
+        if (cardId != null) {
+            cards = cardRepository.findById(cardId).map(List::of).orElseGet(List::of);
+        } else if (userId != null) {
+            cards = cardRepository.findByUserId(userId);
+        } else if (maskedNumber != null && !maskedNumber.isBlank()) {
+            cards = cardRepository.findByMaskedNumberContainingIgnoreCase(maskedNumber.trim());
+        } else if (search != null && !search.isBlank()) {
+            List<Long> userIds = userSearchClient.searchUserIds(search.trim());
+            cards = userIds.isEmpty() ? List.of() : cardRepository.findByUserIdIn(userIds);
+        } else {
+            cards = cardRepository.findAll();
+        }
+        return cards.stream().map(this::mapToResponse).collect(Collectors.toList());
+    }
 
+    // Deliberately separate from blockCard()/unblockCard() above rather than
+    // reusing them — those go through getCardOwnedByUser(cardId, userId),
+    // which scopes the lookup to the CALLING user's own cards and would
+    // reject an admin acting on someone else's. This mirrors the existing
+    // cancelCard()'s plain findById(cardId), just for the reversible
+    // BLOCKED status instead of the permanent CANCELLED one.
+    @Override
+    @Transactional
+    public CardResponse adminBlockCard(Long cardId) {
+        Card card = cardRepository.findById(cardId)
+                .orElseThrow(() -> new ResourceNotFoundException("Card not found"));
+
+        if (card.getStatus() == CardStatus.CANCELLED) {
+            throw new AccountOperationException("Cannot block a cancelled card");
+        }
+
+        card.setStatus(CardStatus.BLOCKED);
+        return mapToResponse(cardRepository.save(card));
+    }
+
+    @Override
+    @Transactional
+    public CardResponse adminUnblockCard(Long cardId) {
+        Card card = cardRepository.findById(cardId)
+                .orElseThrow(() -> new ResourceNotFoundException("Card not found"));
+
+        if (card.getStatus() != CardStatus.BLOCKED) {
+            throw new AccountOperationException("Only BLOCKED cards can be unblocked");
+        }
+
+        if (card.getExpiryDate().isBefore(LocalDate.now())) {
+            throw new AccountOperationException("Cannot unblock an expired card");
+        }
+
+        card.setStatus(CardStatus.ACTIVE);
+        return mapToResponse(cardRepository.save(card));
+    }
     // ── Private helpers ───────────────────────────────────────────
 
     private Card getCardOwnedByUser(Long cardId, Long userId) {
@@ -675,6 +734,7 @@ public class CardServiceImpl implements CardService {
     private CardResponse mapToResponse(Card card) {
         return CardResponse.builder()
                 .id(card.getId())
+                .userId(card.getUserId())
                 .maskedNumber(card.getMaskedNumber())
                 .cardType(card.getCardType())
                 .status(card.getStatus())

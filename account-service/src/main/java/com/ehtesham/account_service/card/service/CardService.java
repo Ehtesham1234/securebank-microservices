@@ -53,4 +53,10 @@ public interface CardService {
     // context for the whole batch, where a single bad card's failure
     // could roll back every card already processed in that run.
     void generateStatementForCard(Long cardId);
+
+    List<CardResponse> getAllCards(Long userId, Long cardId, String maskedNumber, String search);
+
+    CardResponse adminBlockCard(Long cardId);
+
+    CardResponse adminUnblockCard(Long cardId);
 }

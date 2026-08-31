@@ -22,8 +22,6 @@ public interface AccountService {
 
     AccountResponse getAccountById(Long id, Long userId);
 
-    List<AccountResponse> getAllAccounts(Long userId);
-
     AccountResponse freezeAccount(Long id);
 
     AccountResponse unfreezeAccount(Long id);
@@ -51,4 +49,6 @@ public interface AccountService {
     // by a later FD (or by the final commit) could silently roll back
     // FDs that already appeared to succeed earlier in the same run.
     void payOutMaturedFixedDeposit(Long fdId);
+
+    List<AccountResponse> getAllAccounts(Long userId, Long accountId, String accountNumber, String search);
 }

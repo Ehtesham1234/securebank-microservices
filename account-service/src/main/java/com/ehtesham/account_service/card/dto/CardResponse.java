@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 public class CardResponse {
 
     private Long id;
+    private Long userId;
     private String maskedNumber;       // never expose full number
     private CardType cardType;
     private CardStatus status;

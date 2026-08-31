@@ -11,6 +11,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor @AllArgsConstructor
 public class LoanResponse {
     private Long id;
+    private Long userId;
     private String loanRef;
     private LoanType loanType;
     private LoanStatus status;

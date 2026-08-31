@@ -74,16 +74,6 @@ public class TransactionController {
         return ResponseEntity.ok(ApiResponse.success("Transaction history retrieved", history));
     }
 
-    @GetMapping("/admin/transactions")
-    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<Page<TransactionResponse>>> allTransactions(
-            @RequestParam(required = false) Long userId,
-            @PageableDefault(size = 20) Pageable pageable) {
-
-        Page<TransactionResponse> transactions = transactionService.getAllTransactions(userId, pageable);
-        return ResponseEntity.ok(ApiResponse.success("All transactions retrieved", transactions));
-    }
-
     @PostMapping("/admin/transactions/{id}/reverse")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<TransactionResponse>> reverse(
@@ -91,5 +81,20 @@ public class TransactionController {
 
         TransactionResponse response = transactionService.reverseTransaction(id);
         return ResponseEntity.ok(ApiResponse.success("Transaction reversed successfully", response));
+    }
+
+    @GetMapping("/admin/transactions")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Page<TransactionResponse>>> allTransactions(
+            @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) Long transactionId,
+            @RequestParam(required = false) String transactionRef,
+            @RequestParam(required = false) String accountNumber,
+            @RequestParam(required = false) String search,
+            @PageableDefault(size = 20) Pageable pageable) {
+
+        Page<TransactionResponse> transactions = transactionService.getAllTransactions(
+                userId, transactionId, transactionRef, accountNumber, search, pageable);
+        return ResponseEntity.ok(ApiResponse.success("All transactions retrieved", transactions));
     }
 }

@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.PathVariable;
  */
 @FeignClient(
         name = "securebank-api",
+        contextId = "userStatusServiceClient",
         configuration = IdentityForwardingFeignConfig.class,
         fallback = UserStatusClientFallback.class)
 public interface UserStatusClient {

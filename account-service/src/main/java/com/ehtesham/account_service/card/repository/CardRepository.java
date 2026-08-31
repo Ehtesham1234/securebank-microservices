@@ -27,4 +27,8 @@ public interface CardRepository
     Optional<Card> findByUserIdAndCardType(
             Long userId, CardType cardType);
 
+    List<Card> findByMaskedNumberContainingIgnoreCase(String maskedNumber);
+
+    List<Card> findByUserIdIn(List<Long> userIds);
+
 }

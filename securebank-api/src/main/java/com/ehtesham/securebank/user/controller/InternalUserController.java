@@ -3,10 +3,14 @@ package com.ehtesham.securebank.user.controller;
 import com.ehtesham.securebank.common.enums.UserStatus;
 import com.ehtesham.securebank.common.exception.ResourceNotFoundException;
 import com.ehtesham.securebank.user.dto.InternalUserResponse;
+import com.ehtesham.securebank.user.entity.User;
 import com.ehtesham.securebank.user.repository.UserRepository;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 /**
  * Internal endpoints — called service-to-service by kyc-service (staff
@@ -117,5 +121,25 @@ public class InternalUserController {
                         .role(user.getRole().name())
                         .userStatus(user.getUserStatus().name())
                         .build());
+    }
+    /**
+     * Called by account-service and loan-service to resolve a name/email
+     * search term into matching user ids, so their own admin listing
+     * endpoints (accounts/transactions/loans/cards) can filter by "this
+     * looks like a name" without a cross-database join — Account,
+     * Transaction, Loan, and Card all live in different databases than
+     * User. Only reached when the search term isn't already numeric (the
+     * calling service handles that case locally, no Feign call needed).
+     * Capped at 500 matches — a defensive limit against a pathologically
+     * broad term, not an expected real-world ceiling.
+     */
+    @GetMapping("/search-ids")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<List<Long>> searchUserIds(@RequestParam String q) {
+        List<Long> ids = userRepository
+                .searchUsers(q, PageRequest.of(0, 500))
+                .map(User::getId)
+                .getContent();
+        return ResponseEntity.ok(ids);
     }
 }

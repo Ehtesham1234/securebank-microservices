@@ -4,6 +4,8 @@ package com.ehtesham.account_service.transaction.service.impl;
 import com.ehtesham.account_service.account.entity.Account;
 import com.ehtesham.account_service.account.repository.AccountRepository;
 import com.ehtesham.account_service.account.service.AccountService;
+import com.ehtesham.account_service.client.UserSearchClient;
+import com.ehtesham.account_service.common.AdminSearchSupport;
 import com.ehtesham.account_service.exception.InsufficientFundsException;
 import com.ehtesham.account_service.exception.ResourceNotFoundException;
 import com.ehtesham.account_service.exception.TransactionAlreadyReversedException;
@@ -18,11 +20,13 @@ import com.ehtesham.account_service.transaction.enums.TransactionType;
 import com.ehtesham.account_service.transaction.repository.TransactionRepository;
 import com.ehtesham.account_service.transaction.service.TransactionService;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 /*
  * Follow-up fix #1: doDeposit/doWithdraw/doTransfer moved out to
@@ -42,20 +46,21 @@ public class TransactionServiceImpl implements TransactionService {
     private final IdempotencyHelper idempotencyHelper;
     private final SecurityUtils securityUtils;
     private final MoneyMovementExecutor moneyMovementExecutor;
-
+    private final UserSearchClient userSearchClient;
     public TransactionServiceImpl(
             TransactionRepository transactionRepository,
             AccountRepository accountRepository,
             AccountService accountService,
             IdempotencyHelper idempotencyHelper,
             SecurityUtils securityUtils,
-            MoneyMovementExecutor moneyMovementExecutor) {
+            MoneyMovementExecutor moneyMovementExecutor, UserSearchClient userSearchClient1) {
         this.transactionRepository = transactionRepository;
         this.accountRepository = accountRepository;
         this.accountService = accountService;
         this.idempotencyHelper = idempotencyHelper;
         this.securityUtils = securityUtils;
         this.moneyMovementExecutor = moneyMovementExecutor;
+        this.userSearchClient = userSearchClient1;
     }
 
     @Override
@@ -115,15 +120,6 @@ public class TransactionServiceImpl implements TransactionService {
                 .findByAccount(account, pageable)
                 .map(this::mapToResponse);
     }
-
-    @Override
-    @Transactional(readOnly = true)
-    public Page<TransactionResponse> getAllTransactions(
-            Long userId, Pageable pageable) {
-        return transactionRepository.findAllForAdmin(userId, pageable)
-                .map(this::mapToResponse);
-    }
-
     @Override
     @Transactional
     public TransactionResponse reverseTransaction(
@@ -147,7 +143,35 @@ public class TransactionServiceImpl implements TransactionService {
 
         return reverseSingleTransaction(original);
     }
-
+    @Override
+    @Transactional
+    public Page<TransactionResponse> getAllTransactions(
+            Long userId, Long transactionId, String transactionRef,
+            String accountNumber, String search, Pageable pageable) {
+        if (transactionId != null) {
+            return transactionRepository.findById(transactionId)
+                    .map(t -> (Page<TransactionResponse>) new PageImpl<>(List.of(mapToResponse(t)), pageable, 1))
+                    .orElseGet(() -> new PageImpl<>(List.of(), pageable, 0));
+        }
+        if (transactionRef != null && !transactionRef.isBlank()) {
+            return transactionRepository
+                    .findByTransactionRefContainingIgnoreCase(transactionRef.trim(), pageable)
+                    .map(this::mapToResponse);
+        }
+        if (accountNumber != null && !accountNumber.isBlank()) {
+            return transactionRepository
+                    .findByAccountAccountNumberContainingIgnoreCase(accountNumber.trim(), pageable)
+                    .map(this::mapToResponse);
+        }
+        if (search != null && !search.isBlank()) {
+            List<Long> userIds = userSearchClient.searchUserIds(search.trim());
+            if (userIds.isEmpty()) {
+                return new PageImpl<>(List.of(), pageable, 0);
+            }
+            return transactionRepository.findByAccountUserIdIn(userIds, pageable).map(this::mapToResponse);
+        }
+        return transactionRepository.findAllForAdmin(userId, pageable).map(this::mapToResponse);
+    }
     private TransactionResponse reverseTransferPair(
             Transaction original) {
 

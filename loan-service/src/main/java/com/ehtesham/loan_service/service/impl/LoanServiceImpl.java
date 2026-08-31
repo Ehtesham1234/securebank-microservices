@@ -1,6 +1,8 @@
 package com.ehtesham.loan_service.service.impl;
 
 import com.ehtesham.loan_service.client.AccountServiceClient;
+import com.ehtesham.loan_service.client.UserSearchClient;
+import com.ehtesham.loan_service.common.AdminSearchSupport;
 import com.ehtesham.loan_service.dto.*;
 import com.ehtesham.loan_service.entity.EmiPayment;
 import com.ehtesham.loan_service.entity.Loan;
@@ -20,6 +22,7 @@ import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -56,20 +59,21 @@ public class LoanServiceImpl implements LoanService {
     private final AccountServiceClient accountServiceClient;
     private final com.ehtesham.loan_service.client.UserStatusClient userStatusClient;
     private final ObjectMapper objectMapper;
-
+    private final UserSearchClient userSearchClient;
     public LoanServiceImpl(
             LoanRepository loanRepository,
             EmiPaymentRepository emiPaymentRepository,
             OutboxRepository outboxRepository,
             AccountServiceClient accountServiceClient,
             com.ehtesham.loan_service.client.UserStatusClient userStatusClient,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper, UserSearchClient userSearchClient) {
         this.loanRepository = loanRepository;
         this.emiPaymentRepository = emiPaymentRepository;
         this.outboxRepository = outboxRepository;
         this.accountServiceClient = accountServiceClient;
         this.userStatusClient = userStatusClient;
         this.objectMapper = objectMapper;
+        this.userSearchClient = userSearchClient;
     }
 
     // Bug fix: closes the same "stale JWT status for up to 15 minutes"
@@ -369,6 +373,30 @@ public class LoanServiceImpl implements LoanService {
 
         return mapToResponse(loanRepository.save(loan));
     }
+    @Override
+    @Transactional(readOnly = true)
+    public Page<LoanResponse> getAllLoans(
+            Long userId, Long loanId, String loanRef, String search, Pageable pageable) {
+        if (loanId != null) {
+            return loanRepository.findById(loanId)
+                    .map(l -> (Page<LoanResponse>) new PageImpl<>(List.of(mapToResponse(l)), pageable, 1))
+                    .orElseGet(() -> new PageImpl<>(List.of(), pageable, 0));
+        }
+        if (userId != null) {
+            return loanRepository.findByUserId(userId, pageable).map(this::mapToResponse);
+        }
+        if (loanRef != null && !loanRef.isBlank()) {
+            return loanRepository.findByLoanRefContainingIgnoreCase(loanRef.trim(), pageable).map(this::mapToResponse);
+        }
+        if (search != null && !search.isBlank()) {
+            List<Long> userIds = userSearchClient.searchUserIds(search.trim());
+            if (userIds.isEmpty()) {
+                return new PageImpl<>(List.of(), pageable, 0);
+            }
+            return loanRepository.findByUserIdIn(userIds, pageable).map(this::mapToResponse);
+        }
+        return loanRepository.findAll(pageable).map(this::mapToResponse);
+    }
 
     // Bug fix (loan-delinquency detection was dead code): pre-materializes
     // the PENDING EmiPayment row for the given installment, using the
@@ -449,16 +477,6 @@ public class LoanServiceImpl implements LoanService {
 
         return mapToResponse(loan);
     }
-
-    @Override
-    @Transactional(readOnly = true)
-    public Page<LoanResponse> getAllLoans(Long userId, Pageable pageable) {
-        Page<Loan> loans = (userId != null)
-                ? loanRepository.findByUserId(userId, pageable)
-                : loanRepository.findAll(pageable);
-        return loans.map(this::mapToResponse);
-    }
-
     @Override
     @Transactional(readOnly = true)
     public Page<LoanResponse> getLoansByStatus(
@@ -696,6 +714,7 @@ public class LoanServiceImpl implements LoanService {
     private LoanResponse mapToResponse(Loan loan) {
         return LoanResponse.builder()
                 .id(loan.getId())
+                .userId(loan.getUserId())
                 .loanRef(loan.getLoanRef())
                 .loanType(loan.getLoanType())
                 .status(loan.getStatus())

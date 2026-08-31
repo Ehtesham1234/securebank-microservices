@@ -23,8 +23,9 @@ public interface TransactionService {
     Page<TransactionResponse> getTransactionHistory(
             Long accountId, Pageable pageable);
 
-    Page<TransactionResponse> getAllTransactions(Long userId, Pageable pageable);
-
     // Removed: String adminEmail param
     TransactionResponse reverseTransaction(Long transactionId);
+
+    Page<TransactionResponse> getAllTransactions(
+            Long userId, Long transactionId, String transactionRef, String accountNumber, String search, Pageable pageable);
 }

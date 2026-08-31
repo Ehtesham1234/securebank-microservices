@@ -62,17 +62,6 @@ public class AccountController {
     // freeze/unfreeze/close anyone's account. CardController and
     // TransactionController in this same service already do this
     // correctly; this file just didn't.
-
-    @GetMapping("/admin/accounts")
-    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<List<AccountResponse>>> getAllAccounts(
-            @RequestParam(required = false) Long userId) {
-        return ResponseEntity.ok(ApiResponse.success(
-                "Fetched all accounts",
-                accountService.getAllAccounts(userId)
-        ));
-    }
-
     @PostMapping("/admin/accounts/{id}/freeze")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<AccountResponse>> freezeAccount(
@@ -100,6 +89,19 @@ public class AccountController {
         return ResponseEntity.ok(ApiResponse.success(
                 "Account closed successfully",
                 accountService.closeAccount(id)
+        ));
+    }
+
+    @GetMapping("/admin/accounts")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<List<AccountResponse>>> getAllAccounts(
+            @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) Long accountId,
+            @RequestParam(required = false) String accountNumber,
+            @RequestParam(required = false) String search) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Fetched all accounts",
+                accountService.getAllAccounts(userId, accountId, accountNumber, search)
         ));
     }
 }

@@ -4,7 +4,11 @@ package com.ehtesham.account_service.account.repository;
 import com.ehtesham.account_service.account.entity.Account;
 import com.ehtesham.account_service.account.enums.AccountStatus;
 import com.ehtesham.account_service.account.enums.AccountType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -29,4 +33,8 @@ public interface AccountRepository
     Optional<Account> findByUserIdAndAccountTypeAndAccountStatus(
             Long userId, AccountType accountType,
             AccountStatus accountStatus);
+
+    List<Account> findByAccountNumberContainingIgnoreCase(String accountNumber);
+
+    List<Account> findByUserIdIn(List<Long> userIds);
 }

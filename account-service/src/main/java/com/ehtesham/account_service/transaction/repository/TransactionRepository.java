@@ -13,6 +13,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 public interface TransactionRepository
@@ -53,4 +54,10 @@ public interface TransactionRepository
 
     @Query("SELECT t FROM Transaction t WHERE (:userId IS NULL OR t.account.userId = :userId)")
     Page<Transaction> findAllForAdmin(@Param("userId") Long userId, Pageable pageable);
+
+    Page<Transaction> findByTransactionRefContainingIgnoreCase(String transactionRef, Pageable pageable);
+
+    Page<Transaction> findByAccountAccountNumberContainingIgnoreCase(String accountNumber, Pageable pageable);
+
+    Page<Transaction> findByAccountUserIdIn(List<Long> userIds, Pageable pageable);
 }

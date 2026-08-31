@@ -146,4 +146,38 @@ public class CardController {
                 cardService.cancelCard(cardId)
         ));
     }
+
+
+    @GetMapping("/admin")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<List<CardResponse>>> getAllCards(
+            @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) Long cardId,
+            @RequestParam(required = false) String maskedNumber,
+            @RequestParam(required = false) String search) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Fetched all cards",
+                cardService.getAllCards(userId, cardId, maskedNumber, search)
+        ));
+    }
+
+    @PostMapping("/admin/{cardId}/block")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<CardResponse>> adminBlockCard(
+            @PathVariable Long cardId) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Card blocked successfully",
+                cardService.adminBlockCard(cardId)
+        ));
+    }
+
+    @PostMapping("/admin/{cardId}/unblock")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<CardResponse>> adminUnblockCard(
+            @PathVariable Long cardId) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Card unblocked successfully",
+                cardService.adminUnblockCard(cardId)
+        ));
+    }
 }

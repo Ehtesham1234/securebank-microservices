@@ -5,6 +5,8 @@ import com.ehtesham.loan_service.enums.LoanStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -29,4 +31,8 @@ public interface LoanRepository
     // explanation.
     List<Loan> findByStatusAndNextEmiDateBefore(
             LoanStatus status, LocalDate date);
+
+    Page<Loan> findByLoanRefContainingIgnoreCase(String loanRef, Pageable pageable);
+
+    Page<Loan> findByUserIdIn(List<Long> userIds, Pageable pageable);
 }

@@ -94,16 +94,7 @@ public class LoanController {
         return ResponseEntity.ok(ApiResponse.success("EMI payment successful", loan));
     }
 
-    @GetMapping("/admin/loans")
-    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<Page<LoanResponse>>> getAllLoans(
-            @RequestParam(required = false) Long userId,
-            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC)
-            Pageable pageable) {
 
-        Page<LoanResponse> loans = loanService.getAllLoans(userId, pageable);
-        return ResponseEntity.ok(ApiResponse.success("Fetched all loans", loans));
-    }
 
     @GetMapping("/admin/loans/status/{status}")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
@@ -113,5 +104,19 @@ public class LoanController {
 
         Page<LoanResponse> loans = loanService.getLoansByStatus(status, pageable);
         return ResponseEntity.ok(ApiResponse.success("Fetched loans by status", loans));
+    }
+
+    @GetMapping("/admin/loans")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Page<LoanResponse>>> getAllLoans(
+            @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) Long loanId,
+            @RequestParam(required = false) String loanRef,
+            @RequestParam(required = false) String search,
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC)
+            Pageable pageable) {
+
+        Page<LoanResponse> loans = loanService.getAllLoans(userId, loanId, loanRef, search, pageable);
+        return ResponseEntity.ok(ApiResponse.success("Fetched all loans", loans));
     }
 }
