@@ -8,7 +8,6 @@ import com.ehtesham.account_service.account.enums.AccountStatus;
 import com.ehtesham.account_service.account.enums.AccountType;
 import com.ehtesham.account_service.account.enums.FdStatus;
 import com.ehtesham.account_service.client.UserSearchClient;
-import com.ehtesham.account_service.common.AdminSearchSupport;
 import com.ehtesham.account_service.exception.AccountNotFoundException;
 import com.ehtesham.account_service.exception.AccountOperationException;
 import com.ehtesham.account_service.exception.InsufficientFundsException;
@@ -25,7 +24,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 

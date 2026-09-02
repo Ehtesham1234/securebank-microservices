@@ -1,5 +1,6 @@
 package com.ehtesham.securebank.admin;
 
+import com.ehtesham.securebank.auth.repository.RefreshTokenRepository;
 import com.ehtesham.securebank.common.exception.ResourceNotFoundException;
 import com.ehtesham.securebank.common.response.ApiResponse;
 import com.ehtesham.securebank.user.dto.UserResponse;
@@ -12,14 +13,17 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
-
+import com.ehtesham.securebank.common.enums.UserStatus;
+import com.ehtesham.securebank.common.exception.AccountOperationException;
 @RestController
 @RequiredArgsConstructor
 @Tag(name = "Admin", description = "Administrative operations")
 public class AdminController {
 
     private final UserRepository userRepository;
+    private final RefreshTokenRepository refreshTokenRepository;
 
     @GetMapping("/api/v1/admin/test")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
@@ -54,6 +58,50 @@ public class AdminController {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + id));
         return ResponseEntity.ok(ApiResponse.success("User retrieved", toUserResponse(user)));
+    }
+
+    /** Deliberately only ACTIVE <-> SUSPENDED is supported here.
+     *  PENDING_KYC users aren't included: suspending one and reactivating
+     *  it later would have nowhere correct to restore to — jumping
+     *  straight to ACTIVE would skip KYC verification entirely. A
+     *  problematic pre-KYC signup should go through the existing
+     *  teller/KYC reject flow instead, not this one. */
+    @Transactional
+    @PutMapping("/api/v1/admin/users/{id}/suspend")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<UserResponse>> suspendUser(@PathVariable Long id) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + id));
+
+        if (user.getUserStatus() != UserStatus.ACTIVE) {
+            throw new AccountOperationException(
+                    "Cannot suspend userId=" + id + " — current status is " +
+                            user.getUserStatus() + ", not ACTIVE");
+        }
+
+        user.setUserStatus(UserStatus.SUSPENDED);
+        userRepository.save(user);
+        refreshTokenRepository.revokeAllForUser(id);
+
+        return ResponseEntity.ok(ApiResponse.success("User suspended", toUserResponse(user)));
+    }
+    @Transactional
+    @PutMapping("/api/v1/admin/users/{id}/reactivate")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<UserResponse>> reactivateUser(@PathVariable Long id) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + id));
+
+        if (user.getUserStatus() != UserStatus.SUSPENDED) {
+            throw new AccountOperationException(
+                    "Cannot reactivate userId=" + id + " — current status is " +
+                            user.getUserStatus() + ", not SUSPENDED");
+        }
+
+        user.setUserStatus(UserStatus.ACTIVE);
+        userRepository.save(user);
+
+        return ResponseEntity.ok(ApiResponse.success("User reactivated", toUserResponse(user)));
     }
 
     private UserResponse toUserResponse(User user) {

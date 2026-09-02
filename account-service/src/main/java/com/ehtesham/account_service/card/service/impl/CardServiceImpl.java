@@ -5,7 +5,6 @@ import com.ehtesham.account_service.account.entity.Account;
 import com.ehtesham.account_service.account.enums.AccountStatus;
 import com.ehtesham.account_service.account.enums.AccountType;
 import com.ehtesham.account_service.account.repository.AccountRepository;
-import com.ehtesham.account_service.account.service.impl.AccountServiceImpl;
 import com.ehtesham.account_service.card.dto.CardResponse;
 import com.ehtesham.account_service.card.dto.CreditCardRequest;
 import com.ehtesham.account_service.card.dto.CvvResponse;

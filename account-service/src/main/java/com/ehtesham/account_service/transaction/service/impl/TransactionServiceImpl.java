@@ -5,7 +5,6 @@ import com.ehtesham.account_service.account.entity.Account;
 import com.ehtesham.account_service.account.repository.AccountRepository;
 import com.ehtesham.account_service.account.service.AccountService;
 import com.ehtesham.account_service.client.UserSearchClient;
-import com.ehtesham.account_service.common.AdminSearchSupport;
 import com.ehtesham.account_service.exception.InsufficientFundsException;
 import com.ehtesham.account_service.exception.ResourceNotFoundException;
 import com.ehtesham.account_service.exception.TransactionAlreadyReversedException;

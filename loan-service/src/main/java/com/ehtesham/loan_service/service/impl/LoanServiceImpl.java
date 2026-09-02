@@ -2,7 +2,6 @@ package com.ehtesham.loan_service.service.impl;
 
 import com.ehtesham.loan_service.client.AccountServiceClient;
 import com.ehtesham.loan_service.client.UserSearchClient;
-import com.ehtesham.loan_service.common.AdminSearchSupport;
 import com.ehtesham.loan_service.dto.*;
 import com.ehtesham.loan_service.entity.EmiPayment;
 import com.ehtesham.loan_service.entity.Loan;
